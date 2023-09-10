@@ -1,0 +1,25 @@
+name: Code quality check
+
+on:
+  push:
+    branches: main
+
+  pull_request:
+    branches: main
+
+jobs:
+  run-quality-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3.5.0
+      - uses: "actions/setup-python@v2"
+        with:
+          python-version: "3.11"
+
+      - name: "Check Code Quality"
+        run: |
+            python3 -m pip install -r requirements-dev.txt
+            python3 -m isort ./ --check
+            python3 -m black ./ --check
+            python3 -m ruff ./
