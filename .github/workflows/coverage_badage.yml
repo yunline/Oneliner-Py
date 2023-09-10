@@ -1,0 +1,39 @@
+name: "Update Coverage Badage"
+
+on:
+    push:
+      branches:
+        - main
+
+jobs:
+    badage:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v3.5.0
+            - uses: "actions/setup-python@v2"
+              with:
+                python-version: "3.11"
+            
+            - name: "Install and run test"
+              run: |
+                python3 -m  pip install -r requirements-dev.txt
+                python3 -m  pip install .
+                python3 -m coverage run --source=oneliner -m tests
+
+            - name: "Get coverage"
+              id: total
+              run: |
+                echo "total=$(python3 -m coverage report --format=total)" >> $GITHUB_ENV
+            
+            - name: Create Coverage Badge
+              uses: schneegans/dynamic-badges-action@v1.6.0
+              with:
+                auth: ${{ secrets.GIST_SECRET }}
+                gistID: e86b754a309a222ab53215c9d5ff5594
+                filename: Oneliner-Py_coverage.json
+                label: Coverage
+                message: ${{ env.total }}%
+                minColorRange: 60
+                maxColorRange: 95
+                valColorRange: ${{ env.total }}
+                colorRangeSaturation: 80
