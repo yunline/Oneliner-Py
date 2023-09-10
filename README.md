@@ -1,4 +1,4 @@
-![](img\oneliner-py.svg)
+![oneliner-py](https://github.com/yunline/Oneliner-Py/assets/31395137/97ba030b-5d44-4810-9aad-7fed718f18fb)
 
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -6,7 +6,7 @@
 ![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/yunline/e86b754a309a222ab53215c9d5ff5594/raw/Oneliner-Py_coverage.json)
 [![Tests](https://github.com/yunline/Oneliner-Py/actions/workflows/run_test.yml/badge.svg)](https://github.com/yunline/Oneliner-Py/actions/workflows/run_test.yml)
 
-Convert python scripts into oneliner expression.  
+Convert python scripts into **oneliner** expression.  
 
 ## Usage
 ```
