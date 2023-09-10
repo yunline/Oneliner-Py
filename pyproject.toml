@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Oneliner-Py"
+version = "1.0.0"
+authors = [{ name = "Yunline" }]
+description = "Convert python scripts into oneliner expression."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+
+[tool.setuptools.packages.find]
+include = ["oneliner", "oneliner.presets"]
+
+[tool.ruff]
+# https://beta.ruff.rs/docs/rules
+ignore = [
+    "F403", # undefined-local-with-import-star
+    "F405", # undefined-local-with-import-star-usage
+    "E731", # lambda-assignment
+    "E402", # module-import-not-at-top-of-file
+]
+exclude = ["test_cases"]
+
+[tool.isort]
+profile = "black"
+
+[tool.coverage.run]
+omit=[
+    "__main__.py"
+]
