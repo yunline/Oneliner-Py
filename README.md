@@ -35,7 +35,6 @@ OutputFile:
 [(importlib := __import__('importlib')), (itertools := __import__('itertools')), (random := importlib.import_module('random')), (__ol_assign_qqaleuwbod := (0, 2)), (y := __ol_assign_qqaleuwbod[0]), (h := __ol_assign_qqaleuwbod[1]), (msg := 'hello_world'), [[[print(random.choice('/\\'), end='') for x in range(len(msg) + 2)], y.__iadd__(1) if hasattr(y, '__iadd__') else (y := (y + 1)), print('\n %s ' % msg) if y == h else print('')] for _ in itertools.takewhile(lambda _: y < h * 2, itertools.count())]]
 ```
 
-
 ## Install
 ```shell
 git clone https://github.com/yunline/Oneliner-Py.git
@@ -43,4 +42,20 @@ cd ./Oneliner-Py
 python3 -m pip install .
 ```
 
+## Python Version Requirements
+This converter requires **python 3.10+**  
+The converted scripts should be able to run on **python 3.8+**  
 
+## Limitations
+Following statements are not able to be converted as oneliner.
+
+- `from-import *` (from-import with star)
+- `yield` and `yield from`
+- `try-except-finally` statements
+- `raise` statement
+- `with` statement
+- `assert` statement
+- `del` statement
+- `async-xxx` statements
+- `match-case` statement (new in Python 3.10)
+- `type` statement (new in 3.12)
