@@ -14,7 +14,12 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: Implementation :: CPython",
+    "License :: OSI Approved :: MIT License",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/yunline/Oneliner-Py"
+"Bug Tracker" = "https://github.com/yunline/Oneliner-Py/issues"
 
 [tool.setuptools.packages.find]
 include = ["oneliner", "oneliner.presets"]
@@ -33,6 +38,4 @@ exclude = ["test_cases"]
 profile = "black"
 
 [tool.coverage.run]
-omit=[
-    "__main__.py"
-]
+omit = ["__main__.py"]
