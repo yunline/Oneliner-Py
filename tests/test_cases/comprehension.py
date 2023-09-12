@@ -23,14 +23,13 @@ func()
 def func():
     i = 0
 
-    def func2():
-        nonlocal i
-        i = 2
-
     class Foo:
         nonlocal i
         # test: comp inside a class
         [print(i) for i in range(10)]
+
+        # test: nested comp inside a class, with global names used.
+        [[print(i), [print(bin(j)) for j in range(5)]] for i in range(10)]
 
     print(i)
 
@@ -83,3 +82,21 @@ def func():
 
 
 func()
+
+
+# test: a function is named "listcomp"
+# "listcomp" is used as the name of listcomp symbol table. (py < 3.12)
+# this conflict should be handled properly.
+def listcomp(a=[i for i in range(3)]):  # just for test, don't use kwarg like this.
+    b = 0
+
+    def func2():
+        nonlocal b
+        b = 1
+
+    func2()
+    print(b)
+    print(a)
+
+
+listcomp()

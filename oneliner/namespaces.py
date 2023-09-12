@@ -1,5 +1,6 @@
 import itertools
 import symtable
+import sys
 from ast import *
 
 from oneliner.reserved_identifiers import *
@@ -227,6 +228,9 @@ class NamespaceClass(Namespace):
     # keys   --> nonlocal names of THIS namespace
     # values --> where the nonlocal name was born
 
+    if sys.version_info < (3, 12):
+        globals_used_in_comp: set[str]  # global names used in comprehensions
+
     @classmethod
     def _generate(cls, symt: symtable.Class, stack: list[Namespace]):
         # don't push/pop the stack in this function
@@ -237,6 +241,8 @@ class NamespaceClass(Namespace):
         self.outer_nsp = stack[-1]
         self.outer_nsp.inner_nsp.append(self)
         self.outer_nonlocal_map = {}
+        if sys.version_info < (3, 12):
+            self.globals_used_in_comp = set()
 
         for symbol in self.symt.get_symbols():
             if not (symbol.is_nonlocal() or symbol.is_free()):
@@ -310,6 +316,9 @@ class NamespaceClass(Namespace):
             if name in comp.target_names:
                 return Name(id=name, ctx=Load())
 
+        if sys.version_info < (3, 12) and name in self.globals_used_in_comp:
+            return Name(id=name, ctx=Load())
+
         symbol = self.symt.lookup(name)
         if name in self.outer_nonlocal_map:
             outer = self.outer_nonlocal_map[name]
@@ -329,6 +338,34 @@ class NamespaceClass(Namespace):
             )
 
 
+if sys.version_info < (3, 12):
+
+    def _comp_check(symt: symtable.Function):
+        if symt.get_name() not in ["listcomp", "genexpr", "setcomp", "dictcomp"]:
+            return False
+        if ".0" not in symt.get_parameters():
+            return False
+        return True
+
+    def update_globals_from_comp(symt: symtable.Function, stack: list[Namespace]):
+        if not isinstance(stack[-1], NamespaceClass):
+            return
+
+        _globals: set[str] = set()
+        comp_stack = [symt]
+        while comp_stack:
+            symt = comp_stack.pop()
+            for symbol in symt.get_symbols():
+                if symbol.is_global():
+                    _globals.add(symbol.get_name())
+            for child_symt in symt.get_children():
+                assert isinstance(child_symt, symtable.Function)
+                if _comp_check(child_symt):
+                    comp_stack.append(child_symt)
+                # todo: handle lambda?
+        stack[-1].globals_used_in_comp.update(_globals)
+
+
 def generate_nsp(symt: symtable.SymbolTable):
     walk_stack = []
     root = NamespaceGlobal._generate(symt)
@@ -344,18 +381,23 @@ def generate_nsp(symt: symtable.SymbolTable):
         else:
             if isinstance(child_symt, symtable.Function):
                 if child_symt.get_name() == "lambda":
+                    # todo: need a "NamespaceLambda"
                     continue
+                if sys.version_info < (3, 12):
+                    if _comp_check(child_symt):
+                        update_globals_from_comp(child_symt, generate_stack)
+                        continue
+
                 generate_stack.append(
                     NamespaceFunction._generate(child_symt, generate_stack)
                 )
-                walk_stack.append(iter(child_symt.get_children()))
             elif isinstance(child_symt, symtable.Class):
                 generate_stack.append(
                     NamespaceClass._generate(child_symt, generate_stack)
                 )
-                walk_stack.append(iter(child_symt.get_children()))
             else:  # pragma: no cover
                 raise RuntimeError("Unknown type of child symbol table")
+            walk_stack.append(iter(child_symt.get_children()))
     return root
 
 
