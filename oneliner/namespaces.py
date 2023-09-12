@@ -347,23 +347,22 @@ if sys.version_info < (3, 12):
             return False
         return True
 
-    def update_globals_from_comp(symt: symtable.Function, stack: list[Namespace]):
-        if not isinstance(stack[-1], NamespaceClass):
-            return
 
-        _globals: set[str] = set()
-        comp_stack = [symt]
-        while comp_stack:
-            symt = comp_stack.pop()
-            for symbol in symt.get_symbols():
-                if symbol.is_global():
-                    _globals.add(symbol.get_name())
-            for child_symt in symt.get_children():
-                assert isinstance(child_symt, symtable.Function)
-                if _comp_check(child_symt):
-                    comp_stack.append(child_symt)
-                # todo: handle lambda?
-        stack[-1].globals_used_in_comp.update(_globals)
+def update_globals_from_lambda_or_comp(symt: symtable.Function, stack: list[Namespace]):
+    if not isinstance(stack[-1], NamespaceClass):
+        return
+
+    _globals: set[str] = set()
+    comp_stack = [symt]
+    while comp_stack:
+        symt = comp_stack.pop()
+        for symbol in symt.get_symbols():
+            if symbol.is_global():
+                _globals.add(symbol.get_name())
+        for child_symt in symt.get_children():
+            assert isinstance(child_symt, symtable.Function)
+            comp_stack.append(child_symt)
+    stack[-1].globals_used_in_comp.update(_globals)
 
 
 def generate_nsp(symt: symtable.SymbolTable):
@@ -381,11 +380,11 @@ def generate_nsp(symt: symtable.SymbolTable):
         else:
             if isinstance(child_symt, symtable.Function):
                 if child_symt.get_name() == "lambda":
-                    # todo: need a "NamespaceLambda"
+                    update_globals_from_lambda_or_comp(child_symt, generate_stack)
                     continue
                 if sys.version_info < (3, 12):
                     if _comp_check(child_symt):
-                        update_globals_from_comp(child_symt, generate_stack)
+                        update_globals_from_lambda_or_comp(child_symt, generate_stack)
                         continue
 
                 generate_stack.append(
