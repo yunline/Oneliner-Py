@@ -1,6 +1,5 @@
 import typing
 from ast import *
-from ast import expr
 
 from oneliner.namespaces import Namespace
 
