@@ -1,4 +1,6 @@
+import typing
 from ast import *
+from ast import expr
 
 from oneliner.namespaces import Namespace
 
@@ -80,6 +82,42 @@ class PendingName(PendingExprGeneric):
         return self.nsp.get_load_name(self.node.id)
 
 
+_CompNode: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
+
+
+class PendingComp(PendingExprGeneric):
+    target_names: set[str]
+    node: _CompNode
+
+    def __init__(self, node: _CompNode, nsp: Namespace):
+        super().__init__(node)
+        self.nsp = nsp
+        self.target_names = set()
+
+        for comp in self.node.generators:
+            self.get_comp_target_names(comp.target)
+
+        self.nsp.comp_stack.append(self)
+
+    def get_result(self) -> expr:
+        assert self.nsp.comp_stack[-1] is self
+        self.nsp.comp_stack.pop()
+
+        return super().get_result()
+
+    def get_comp_target_names(self, target):
+        """
+        Recursion warning
+        """
+        if isinstance(target, Name):
+            self.target_names.add(target.id)
+        elif isinstance(target, (Tuple, List)):
+            for sub_target in target.elts:
+                self.get_comp_target_names(sub_target)
+        else:  # pragma: no cover
+            raise RuntimeError("Unknown comprehension target")
+
+
 class ExpressionTransformer:
     def __init__(self, nsp: Namespace):
         self.pending_stack: list[PendingExprGeneric] = []
@@ -90,6 +128,8 @@ class ExpressionTransformer:
             return PendingNamedExpr(node, self.nsp)
         elif isinstance(node, Name):
             return PendingName(node, self.nsp)
+        elif isinstance(node, (ListComp, SetComp, DictComp, GeneratorExp)):
+            return PendingComp(node, self.nsp)
         else:
             return PendingExprGeneric(node)
 

@@ -1,6 +1,7 @@
+import sys
 import typing
+import warnings
 from ast import *
-from ast import AST
 
 import oneliner.utils as utils
 from oneliner.expr_transform import expr_transf
@@ -822,6 +823,16 @@ class PendingFunctionDef(_PendingCompoundStmt):
     def __init__(self, node: FunctionDef, nsp: Namespace, nsp_global: NamespaceGlobal):
         super().__init__(node, nsp, nsp_global)
         self.node = node
+
+        if sys.version_info < (3, 12):
+            # pep 709 removed the namespace of comprehension
+            # no need to check this in py 3.12+
+            if node.name in ["listcomp", "genexpr", "setcomp", "dictcomp"]:
+                warnings.warn(
+                    f"Reserved function name '{node.name}' used, "
+                    "result may be unreliable",
+                    RuntimeWarning,
+                )
 
         for tmp_nsp in self.nsp.inner_nsp:
             if (

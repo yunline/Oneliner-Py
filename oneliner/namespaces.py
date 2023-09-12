@@ -18,12 +18,16 @@ class Namespace:
     outer_nsp: "Namespace"
     inner_nsp: list["Namespace"]
 
+    loop_stack: list["oneliner.pending_nodes._PendingLoop"]
+    comp_stack: list["oneliner.expr_transform.PendingComp"]
+
     @classmethod
     def _generate(cls):
         raise NotImplementedError()  # pragma: no cover
 
     def __init__(self):
-        self.loop_stack: list["pending_nodes._PendingLoop"] = []
+        self.loop_stack = []
+        self.comp_stack = []
         self.inner_nsp = []
 
     def get_assign(self, name: str, value_expr: expr) -> expr:
@@ -43,6 +47,10 @@ class Namespace:
 
 
 class NamespaceGlobal(Namespace):
+    use_itertools: bool
+    use_importlib: bool
+    use_preset_iter_wrapper: bool
+
     @classmethod
     def _generate(cls, symt: symtable.SymbolTable):
         self = cls()
@@ -189,6 +197,10 @@ class NamespaceFunction(Namespace):
             )
 
     def get_load_name(self, name: str) -> expr:
+        for comp in self.comp_stack:
+            if name in comp.target_names:
+                return Name(id=name, ctx=Load())
+
         if name in self.inner_nonlocal_names:
             return Subscript(
                 value=self.nonlocal_dict_expr,
@@ -294,6 +306,10 @@ class NamespaceClass(Namespace):
             )
 
     def get_load_name(self, name: str) -> expr:
+        for comp in self.comp_stack:
+            if name in comp.target_names:
+                return Name(id=name, ctx=Load())
+
         symbol = self.symt.lookup(name)
         if name in self.outer_nonlocal_map:
             outer = self.outer_nonlocal_map[name]
@@ -344,4 +360,5 @@ def generate_nsp(symt: symtable.SymbolTable):
 
 
 # fix error caused by circular import
-import oneliner.pending_nodes as pending_nodes
+import oneliner.expr_transform
+import oneliner.pending_nodes
