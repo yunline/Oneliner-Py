@@ -1,6 +1,5 @@
 import typing
 from ast import *
-from ast import AST
 
 import oneliner.utils as utils
 from oneliner.expr_transform import expr_transf

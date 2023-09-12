@@ -1,5 +1,6 @@
 import itertools
 import symtable
+import sys
 from ast import *
 
 from oneliner.reserved_identifiers import *
@@ -18,12 +19,16 @@ class Namespace:
     outer_nsp: "Namespace"
     inner_nsp: list["Namespace"]
 
+    loop_stack: list["oneliner.pending_nodes._PendingLoop"]
+    comp_stack: list["oneliner.expr_transform.PendingComp"]
+
     @classmethod
     def _generate(cls):
         raise NotImplementedError()  # pragma: no cover
 
     def __init__(self):
-        self.loop_stack: list["pending_nodes._PendingLoop"] = []
+        self.loop_stack = []
+        self.comp_stack = []
         self.inner_nsp = []
 
     def get_assign(self, name: str, value_expr: expr) -> expr:
@@ -43,6 +48,10 @@ class Namespace:
 
 
 class NamespaceGlobal(Namespace):
+    use_itertools: bool
+    use_importlib: bool
+    use_preset_iter_wrapper: bool
+
     @classmethod
     def _generate(cls, symt: symtable.SymbolTable):
         self = cls()
@@ -189,6 +198,10 @@ class NamespaceFunction(Namespace):
             )
 
     def get_load_name(self, name: str) -> expr:
+        for comp in self.comp_stack:
+            if name in comp.target_names:
+                return Name(id=name, ctx=Load())
+
         if name in self.inner_nonlocal_names:
             return Subscript(
                 value=self.nonlocal_dict_expr,
@@ -215,6 +228,9 @@ class NamespaceClass(Namespace):
     # keys   --> nonlocal names of THIS namespace
     # values --> where the nonlocal name was born
 
+    if sys.version_info < (3, 12):
+        globals_used_in_comp: set[str]  # global names used in comprehensions
+
     @classmethod
     def _generate(cls, symt: symtable.Class, stack: list[Namespace]):
         # don't push/pop the stack in this function
@@ -225,6 +241,8 @@ class NamespaceClass(Namespace):
         self.outer_nsp = stack[-1]
         self.outer_nsp.inner_nsp.append(self)
         self.outer_nonlocal_map = {}
+        if sys.version_info < (3, 12):
+            self.globals_used_in_comp = set()
 
         for symbol in self.symt.get_symbols():
             if not (symbol.is_nonlocal() or symbol.is_free()):
@@ -294,6 +312,13 @@ class NamespaceClass(Namespace):
             )
 
     def get_load_name(self, name: str) -> expr:
+        for comp in self.comp_stack:
+            if name in comp.target_names:
+                return Name(id=name, ctx=Load())
+
+        if sys.version_info < (3, 12) and name in self.globals_used_in_comp:
+            return Name(id=name, ctx=Load())
+
         symbol = self.symt.lookup(name)
         if name in self.outer_nonlocal_map:
             outer = self.outer_nonlocal_map[name]
@@ -313,6 +338,33 @@ class NamespaceClass(Namespace):
             )
 
 
+if sys.version_info < (3, 12):
+
+    def _comp_check(symt: symtable.Function):
+        if symt.get_name() not in ["listcomp", "genexpr", "setcomp", "dictcomp"]:
+            return False
+        if ".0" not in symt.get_parameters():
+            return False
+        return True
+
+
+def update_globals_from_lambda_or_comp(symt: symtable.Function, stack: list[Namespace]):
+    if not isinstance(stack[-1], NamespaceClass):
+        return
+
+    _globals: set[str] = set()
+    comp_stack = [symt]
+    while comp_stack:
+        symt = comp_stack.pop()
+        for symbol in symt.get_symbols():
+            if symbol.is_global():
+                _globals.add(symbol.get_name())
+        for child_symt in symt.get_children():
+            assert isinstance(child_symt, symtable.Function)
+            comp_stack.append(child_symt)
+    stack[-1].globals_used_in_comp.update(_globals)
+
+
 def generate_nsp(symt: symtable.SymbolTable):
     walk_stack = []
     root = NamespaceGlobal._generate(symt)
@@ -328,20 +380,26 @@ def generate_nsp(symt: symtable.SymbolTable):
         else:
             if isinstance(child_symt, symtable.Function):
                 if child_symt.get_name() == "lambda":
+                    update_globals_from_lambda_or_comp(child_symt, generate_stack)
                     continue
+                if sys.version_info < (3, 12):
+                    if _comp_check(child_symt):
+                        update_globals_from_lambda_or_comp(child_symt, generate_stack)
+                        continue
+
                 generate_stack.append(
                     NamespaceFunction._generate(child_symt, generate_stack)
                 )
-                walk_stack.append(iter(child_symt.get_children()))
             elif isinstance(child_symt, symtable.Class):
                 generate_stack.append(
                     NamespaceClass._generate(child_symt, generate_stack)
                 )
-                walk_stack.append(iter(child_symt.get_children()))
             else:  # pragma: no cover
                 raise RuntimeError("Unknown type of child symbol table")
+            walk_stack.append(iter(child_symt.get_children()))
     return root
 
 
 # fix error caused by circular import
-import oneliner.pending_nodes as pending_nodes
+import oneliner.expr_transform
+import oneliner.pending_nodes

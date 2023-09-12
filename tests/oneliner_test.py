@@ -134,6 +134,14 @@ class TestNonlocal(test_utils.OnelinerTestCaseBase):
     test_case_filename = "nonlocal.py"
 
 
+class TestComprehension(test_utils.OnelinerTestCaseBase):
+    """
+    Test if the namespace of comprehension expr is isolated
+    """
+
+    test_case_filename = "comprehension.py"
+
+
 class TestGlobal(test_utils.OnelinerTestCaseBase):
     test_case_filename = "global.py"
 
