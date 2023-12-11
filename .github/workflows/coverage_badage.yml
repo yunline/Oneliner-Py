@@ -23,7 +23,7 @@ jobs:
             - name: "Get coverage"
               id: total
               run: |
-                python3 -m coverage run --source=oneliner -m tests
+                python3 -m coverage run --source=oneliner -m oneliner_tests
                 echo "total=$(python3 -m coverage report --format=total)" >> $GITHUB_ENV
             
             - name: Create Coverage Badge

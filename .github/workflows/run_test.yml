@@ -25,4 +25,4 @@ jobs:
       - name: "Install and run test"
         run: |
             python3 -m  pip install .
-            python3 -m tests
+            python3 -m oneliner_tests
