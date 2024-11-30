@@ -27,7 +27,7 @@ jobs:
                 echo "total=$(python3 -m coverage report --format=total)" >> $GITHUB_ENV
             
             - name: Create Coverage Badge
-              uses: schneegans/dynamic-badges-action@v1.6.0
+              uses: schneegans/dynamic-badges-action@v1.7.0
               with:
                 auth: ${{ secrets.GIST_SECRET }}
                 gistID: e86b754a309a222ab53215c9d5ff5594
