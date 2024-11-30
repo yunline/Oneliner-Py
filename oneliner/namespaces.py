@@ -149,9 +149,9 @@ class NamespaceFunction(Namespace):
         self.return_value_expr = Name(id=ol_name(OL_RETURN_VALUE))
         self.flow_ctrl_return_expr = Name(id=ol_name(OL_RETURN))
         self.flow_ctrl_return_used = False
-        self.return_node_bodies: list[
-            list[AST]
-        ] = []  # list of bodies of converted return nodes
+        self.return_node_bodies: list[list[AST]] = (
+            []
+        )  # list of bodies of converted return nodes
 
         # use a dict to emulate the behavior of nonlocal
         self.nonlocal_dict_expr = Name(id=ol_name(OL_NONLOCAL_DICT))
