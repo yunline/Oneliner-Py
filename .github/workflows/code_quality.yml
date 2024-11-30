@@ -22,4 +22,4 @@ jobs:
             python3 -m pip install -r requirements-dev.txt
             python3 -m isort ./ --check
             python3 -m black ./ --check
-            python3 -m ruff ./
+            python3 -m ruff check ./

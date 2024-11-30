@@ -400,7 +400,7 @@ def _unparse_comprehensions(generators):
             if_list.append((yield PREC_EXPR, test))
         ifs = " if ".join(if_list)
         if if_list:
-            ifs = f" if " + ifs
+            ifs = " if " + ifs
         generator_list.append(f"{_async}for {target} in {_iter}{ifs}")
     return " ".join(generator_list)
 
