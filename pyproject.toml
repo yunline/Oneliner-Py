@@ -26,7 +26,7 @@ include = ["oneliner", "oneliner.presets"]
 
 [tool.ruff]
 # https://beta.ruff.rs/docs/rules
-ignore = [
+lint.ignore = [
     "F403", # undefined-local-with-import-star
     "F405", # undefined-local-with-import-star-usage
     "E731", # lambda-assignment
