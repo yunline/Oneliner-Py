@@ -7,8 +7,11 @@ import ast
 import symtable
 
 
-def convert_code_string(code: str, filename="<string>"):
+def convert_code_string(code: str, filename="<string>", use_new_unparser=False):
     ast_root = ast.parse(code, filename, "exec")
     symtable_root = symtable.symtable(code, filename, "exec")
     out = OnelinerConvertor().cvt(ast_root, symtable_root)
-    return unparse(out)
+    if use_new_unparser:
+        return unparse(out)
+    else:
+        return ast.unparse(out).replace("\n", "")
