@@ -1,2 +1,2 @@
-oneliner_version = (1, 1, 0)
-dev = False
+oneliner_version = (1, 2, 0)
+dev = True
