@@ -77,4 +77,4 @@ class OnelinerConvertor:
 
                     if len(self.pending_node_stack) == 0:
                         assert len(self.nsp_stack) == 1
-                        return utils.list_wrapper(result_nodes)
+                        return utils.chain_call_wrapper(result_nodes)
