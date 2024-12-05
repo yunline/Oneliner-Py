@@ -1,6 +1,6 @@
 import random
 import typing
-from ast import AST, Call, Constant, List, Load, Name, Slice
+from ast import *
 
 
 def unique_id() -> str:
@@ -33,6 +33,36 @@ def list_wrapper(nodes: list[AST]) -> AST:
     if len(nodes) == 1:
         return nodes[0]
     return List(elts=nodes, ctx=Load())
+
+
+def chain_call_wrapper(nodes: list[AST]) -> AST:
+    if len(nodes) == 0:
+        return Constant(value=...)
+    if len(nodes) == 1:
+        return nodes[0]
+    runner = NamedExpr(
+        target=Name(id="__on_run", ctx=Store()),
+        value=Lambda(
+            args=arguments(
+                posonlyargs=[],
+                args=[arg(arg="arg")],
+                kwonlyargs=[],
+                kw_defaults=[],
+                defaults=[],
+            ),
+            body=Name(id="__on_run", ctx=Load()),
+        ),
+    )
+    call = Call(
+        func=runner,
+        args=[nodes[0]],
+        keywords=[],
+    )
+    for node in nodes[1:]:
+        call = Call(func=call, args=[], keywords=[])
+        call.args.append(node)
+
+    return call
 
 
 def never_call(*args, **kwargs) -> typing.NoReturn:
