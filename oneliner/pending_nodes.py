@@ -139,7 +139,7 @@ class _PendingCompoundStmt(PendingNode):
             stack[-1].append(
                 IfExp(
                     test=UnaryOp(op=Not(), operand=get_flow_control_expr()),
-                    body=utils.list_wrapper(wrapped),
+                    body=utils.wrap_expr(wrapped),
                     orelse=Constant(value=...),
                 )
             )
@@ -158,8 +158,8 @@ class PendingIf(_PendingCompoundStmt):
         return [
             IfExp(
                 test=expr_transf(self.nsp, self.node.test),
-                body=utils.list_wrapper(self.converted_body),
-                orelse=utils.list_wrapper(self.converted_orelse),
+                body=utils.wrap_expr(self.converted_body),
+                orelse=utils.wrap_expr(self.converted_orelse),
             )
         ]
 
@@ -309,15 +309,15 @@ class PendingWhile(_PendingLoop):
         if self.break_cnt:
             while_loop_orelse = IfExp(
                 test=UnaryOp(op=Not(), operand=self.flow_ctrl_break_expr),
-                body=utils.list_wrapper(self.converted_orelse),
+                body=utils.wrap_expr(self.converted_orelse),
                 orelse=Constant(value=...),
             )
         else:
-            while_loop_orelse = utils.list_wrapper(self.converted_orelse)
+            while_loop_orelse = utils.wrap_expr(self.converted_orelse)
 
         # the main body of the oneliner while loop
         while_loop_body = ListComp(
-            elt=utils.list_wrapper(self.converted_body),
+            elt=utils.wrap_expr(self.converted_body),
             generators=[
                 comprehension(
                     target=Name(id="_", ctx=Store()),
@@ -392,7 +392,7 @@ class PendingFor(_PendingLoop):
         if self.interrupt_cnt == 0 and len(self.node.orelse) == 0:
             return [
                 ListComp(
-                    elt=utils.list_wrapper(self.converted_body),
+                    elt=utils.wrap_expr(self.converted_body),
                     generators=[
                         comprehension(
                             target=self.node.target,
@@ -454,15 +454,15 @@ class PendingFor(_PendingLoop):
                         ctx=Load(),
                     ),
                 ),
-                body=utils.list_wrapper(self.converted_orelse),
+                body=utils.wrap_expr(self.converted_orelse),
                 orelse=Constant(value=...),
             )
         else:
-            for_loop_orelse = utils.list_wrapper(self.converted_orelse)
+            for_loop_orelse = utils.wrap_expr(self.converted_orelse)
 
         # the main body of the oneliner for loop
         for_loop_body = ListComp(
-            elt=utils.list_wrapper(self.converted_body),
+            elt=utils.wrap_expr(self.converted_body),
             generators=[
                 comprehension(
                     target=self.node.target,
@@ -923,7 +923,7 @@ class PendingFunctionDef(_PendingCompoundStmt):
         body_expr = Lambda(
             args=self.converted_args,
             body=Subscript(
-                value=utils.list_wrapper(body),
+                value=utils.list_wrapper(body), # todo: not the full body needs list_wrapper
                 slice=Constant(value=-1),
                 ctx=Load(),
             ),
