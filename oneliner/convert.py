@@ -4,7 +4,7 @@ import symtable
 import oneliner.utils as utils
 from oneliner.config import Configs
 from oneliner.contex import Context
-from oneliner.namespaces import *
+from oneliner.namespaces import Namespace, generate_nsp
 from oneliner.pending_nodes import *
 
 ast2pending: dict[type[ast.AST], type[PendingNode]] = {
