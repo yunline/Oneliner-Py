@@ -2,4 +2,4 @@ coverage
 black
 isort
 ruff
-# todo: add mypy check
+mypy
