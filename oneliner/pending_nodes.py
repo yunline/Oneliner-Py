@@ -2,13 +2,9 @@ import typing
 from ast import *
 
 import oneliner.utils as utils
+from oneliner.contex import Context
 from oneliner.expr_transform import expr_transf
-from oneliner.namespaces import (
-    Namespace,
-    NamespaceClass,
-    NamespaceFunction,
-    NamespaceGlobal,
-)
+from oneliner.namespaces import Namespace, NamespaceClass, NamespaceFunction
 from oneliner.reserved_identifiers import *
 
 __all__ = [
@@ -34,10 +30,11 @@ __all__ = [
 
 
 class PendingNode:
-    def __init__(self, node: AST, nsp: Namespace, nsp_global: NamespaceGlobal):
+    def __init__(self, node: AST, nsp: Namespace, context: Context):
         self.iter_node = self._iter_nodes()
         self.nsp = nsp
-        self.nsp_global = nsp_global
+        self.nsp_global = context.nsp_global
+        self.context = context
 
     def get_result(self) -> list[expr]:
         raise NotImplementedError()  # pragma: no cover
@@ -55,8 +52,8 @@ class PendingNode:
 class PendingModule(PendingNode):
     converted_body: list[expr]
 
-    def __init__(self, node: Module, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: Module, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
         self.converted_body = []
 
@@ -90,8 +87,8 @@ class PendingModule(PendingNode):
 
 
 class PendingExpr(PendingNode):
-    def __init__(self, node: Expr, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: Expr, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
     def get_result(self) -> list[expr]:
@@ -141,7 +138,7 @@ class _PendingCompoundStmt(PendingNode):
             stack[-1].append(
                 IfExp(
                     test=UnaryOp(op=Not(), operand=get_flow_control_expr()),
-                    body=utils.wrap_expr(wrapped),
+                    body=self.context.expr_wraper(wrapped),
                     orelse=Constant(value=...),
                 )
             )
@@ -152,8 +149,8 @@ class PendingIf(_PendingCompoundStmt):
     converted_body: list[expr]
     converted_orelse: list[expr]
 
-    def __init__(self, node: If, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: If, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
         self.converted_body = []
@@ -163,8 +160,8 @@ class PendingIf(_PendingCompoundStmt):
         return [
             IfExp(
                 test=expr_transf(self.nsp, self.node.test),
-                body=utils.wrap_expr(self.converted_body),
-                orelse=utils.wrap_expr(self.converted_orelse),
+                body=self.context.expr_wraper(self.converted_body),
+                orelse=self.context.expr_wraper(self.converted_orelse),
             )
         ]
 
@@ -248,8 +245,8 @@ class _PendingLoop(_PendingCompoundStmt, typing.Generic[T]):
 
 class PendingWhile(_PendingLoop[While]):
 
-    def __init__(self, node: While, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: While, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
         self.converted_body = []
@@ -317,15 +314,15 @@ class PendingWhile(_PendingLoop[While]):
         if self.break_cnt:
             while_loop_orelse = IfExp(
                 test=UnaryOp(op=Not(), operand=self.flow_ctrl_break_expr),
-                body=utils.wrap_expr(self.converted_orelse),
+                body=self.context.expr_wraper(self.converted_orelse),
                 orelse=Constant(value=...),
             )
         else:
-            while_loop_orelse = utils.wrap_expr(self.converted_orelse)
+            while_loop_orelse = self.context.expr_wraper(self.converted_orelse)
 
         # the main body of the oneliner while loop
         while_loop_body = ListComp(
-            elt=utils.wrap_expr(self.converted_body),
+            elt=self.context.expr_wraper(self.converted_body),
             generators=[
                 comprehension(
                     target=Name(id="_", ctx=Store()),
@@ -375,8 +372,8 @@ class PendingWhile(_PendingLoop[While]):
 
 class PendingFor(_PendingLoop[For]):
 
-    def __init__(self, node: For, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: For, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
         self.converted_body = []
@@ -399,7 +396,7 @@ class PendingFor(_PendingLoop[For]):
         if self.interrupt_cnt == 0 and len(self.node.orelse) == 0:
             return [
                 ListComp(
-                    elt=utils.wrap_expr(self.converted_body),
+                    elt=self.context.expr_wraper(self.converted_body),
                     generators=[
                         comprehension(
                             target=self.node.target,
@@ -462,15 +459,15 @@ class PendingFor(_PendingLoop[For]):
                         ctx=Load(),
                     ),
                 ),
-                body=utils.wrap_expr(self.converted_orelse),
+                body=self.context.expr_wraper(self.converted_orelse),
                 orelse=Constant(value=...),
             )
         else:
-            for_loop_orelse = utils.wrap_expr(self.converted_orelse)
+            for_loop_orelse = self.context.expr_wraper(self.converted_orelse)
 
         # the main body of the oneliner for loop
         for_loop_body = ListComp(
-            elt=utils.wrap_expr(self.converted_body),
+            elt=self.context.expr_wraper(self.converted_body),
             generators=[
                 comprehension(
                     target=self.node.target,
@@ -492,8 +489,8 @@ class PendingFor(_PendingLoop[For]):
 
 
 class PendingBreak(PendingNode):
-    def __init__(self, node: Break, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: Break, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         if len(self.nsp.loop_stack) == 0:
             raise SyntaxError(
                 utils.ast_debug_info(node) + "'break' is not inside a loop"
@@ -529,8 +526,8 @@ class PendingBreak(PendingNode):
 
 
 class PeindingContinue(PendingNode):
-    def __init__(self, node: Continue, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: Continue, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         if len(self.nsp.loop_stack) == 0:
             raise SyntaxError(
                 utils.ast_debug_info(node) + "'continue' is not inside a loop"
@@ -551,10 +548,8 @@ class PendingPass(PendingNode):
 
 
 class PendingAssign(PendingNode):
-    def __init__(
-        self, node: Assign | AnnAssign, nsp: Namespace, nsp_global: NamespaceGlobal
-    ):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: Assign | AnnAssign, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
     def assign_auto(self, target: AST, value: expr) -> list[expr]:
@@ -685,8 +680,8 @@ class PendingAssign(PendingNode):
 
 
 class PendingAugAssign(PendingNode):
-    def __init__(self, node: AugAssign, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: AugAssign, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
     _op_dict: dict[type[operator], str] = {
@@ -831,8 +826,8 @@ class PendingFunctionDef(_PendingCompoundStmt):
     internal_nsp: NamespaceFunction
     converted_body: list[expr]
 
-    def __init__(self, node: FunctionDef, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: FunctionDef, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
         for tmp_nsp in self.nsp.inner_nsp:
@@ -975,11 +970,11 @@ class PendingFunctionDef(_PendingCompoundStmt):
 
 
 class PendingReturn(PendingNode):
-    def __init__(self, node: Return, nsp: Namespace, nsp_global: NamespaceGlobal):
+    def __init__(self, node: Return, nsp: Namespace, context: Context):
         if not isinstance(nsp, NamespaceFunction):
             raise SyntaxError(utils.ast_debug_info(node) + "'return' outside function")
 
-        super().__init__(node, nsp, nsp_global)
+        super().__init__(node, nsp, context)
         self.node = node
         self.nsp: NamespaceFunction
 
@@ -1039,8 +1034,8 @@ class PendingClassDef(_PendingCompoundStmt):
     internal_nsp: NamespaceClass
     converted_body: list[expr]
 
-    def __init__(self, node: ClassDef, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: ClassDef, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
         for tmp_nsp in self.nsp.inner_nsp:
@@ -1181,8 +1176,8 @@ class PendingClassDef(_PendingCompoundStmt):
 
 
 class PendingImport(PendingNode):
-    def __init__(self, node: Import, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: Import, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
         self.nsp_global.use_importlib = True
 
@@ -1212,8 +1207,8 @@ class PendingImport(PendingNode):
 
 
 class PendingImportFrom(PendingNode):
-    def __init__(self, node: ImportFrom, nsp: Namespace, nsp_global: NamespaceGlobal):
-        super().__init__(node, nsp, nsp_global)
+    def __init__(self, node: ImportFrom, nsp: Namespace, context: Context):
+        super().__init__(node, nsp, context)
         self.node = node
 
     def get_result(self) -> list[expr]:
