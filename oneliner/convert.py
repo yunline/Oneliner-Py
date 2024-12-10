@@ -7,9 +7,12 @@ from oneliner.pending_nodes import *
 
 
 class OnelinerConvertor:
-    def __init__(self):
-        self.pending_node_stack: list[PendingNode] = []
-        self.nsp_stack: list[Namespace] = []
+    pending_node_stack: list[PendingNode]
+    nsp_stack: list[Namespace]
+
+    def __init__(self) -> None:
+        self.pending_node_stack = []
+        self.nsp_stack = []
 
     _pending_map: dict[type[ast.AST], type[PendingNode]] = {
         ast.Module: PendingModule,
@@ -41,7 +44,7 @@ class OnelinerConvertor:
             )
         except KeyError as err:
             raise RuntimeError(
-                utils.ast_debug_info(node)
+                utils.ast_debug_info(node)  # type: ignore
                 + f"Unable to convert node '{type(node).__name__}'"
             ) from err
 
@@ -49,12 +52,15 @@ class OnelinerConvertor:
         """Get the stack top of self.pending_node_stack"""
         return self.pending_node_stack[-1]
 
-    def cvt(self, ast_root: ast.Module, symtable_root: symtable.SymbolTable) -> ast.AST:
+    def cvt(
+        self, ast_root: ast.Module, symtable_root: symtable.SymbolTable
+    ) -> ast.expr:
         self.nsp_global = generate_nsp(symtable_root)
         self.nsp_stack.append(self.nsp_global)
-        unconverted = ast_root
+        unconverted: None | ast.AST = ast_root
         result_nodes = None
         while True:
+            assert unconverted is not None  # to make type checker happy
             pending_node = self.get_pending_node(unconverted)
             self.pending_node_stack.append(pending_node)
             if pending_node.has_internal_namespace:

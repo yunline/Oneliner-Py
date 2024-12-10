@@ -25,6 +25,7 @@ def convert_slice(_slice: Slice) -> Call:
         keywords=[],
     )
 
+
 def wrap_expr(nodes: list[expr]) -> expr:
     """Wrap a list of expr nodes as one expr"""
     if len(nodes) == 0:
@@ -34,8 +35,10 @@ def wrap_expr(nodes: list[expr]) -> expr:
 
     return _wrap_expr(nodes)
 
+
 def list_wrapper(nodes: list[expr]) -> expr:
     return List(elts=nodes, ctx=Load())
+
 
 def chain_call_wrapper(nodes: list[expr]) -> expr:
     runner = NamedExpr(
@@ -62,11 +65,13 @@ def chain_call_wrapper(nodes: list[expr]) -> expr:
 
     return call
 
+
 _wrap_expr = chain_call_wrapper
+
 
 def never_call(*args, **kwargs) -> typing.NoReturn:
     raise RuntimeError("this function should never be called")  # pragma: no cover
 
 
-def ast_debug_info(node: AST):
+def ast_debug_info(node: stmt | expr):
     return f"At line {node.lineno}, col {node.col_offset}: "

@@ -7,11 +7,17 @@ __all__ = [
     "expr_transf",
 ]
 
+_CompNode: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
+T = typing.TypeVar("T", expr, NamedExpr, Name, _CompNode)
 
-class PendingExprGeneric:
-    def __init__(self, node: expr):
+
+class PendingExprGeneric(typing.Generic[T]):
+    node: T
+    converted_dict: dict[str, typing.Any]
+
+    def __init__(self, node: T):
         self.node = node
-        self.converted_dict: dict[str, expr | list[expr]] = {}
+        self.converted_dict = {}
 
         self.iter_fields = self._iter_fields()
 
@@ -33,7 +39,11 @@ class PendingExprGeneric:
         return type(self.node)(**self.converted_dict)
 
 
-class PendingNamedExpr(PendingExprGeneric):
+class PendingExpr(PendingExprGeneric[expr]):
+    pass
+
+
+class PendingNamedExpr(PendingExprGeneric[NamedExpr]):
     def __init__(self, node: NamedExpr, nsp: Namespace):
         self.node = node
         self.nsp = nsp
@@ -64,7 +74,7 @@ class PendingNamedExpr(PendingExprGeneric):
         return result
 
 
-class PendingName(PendingExprGeneric):
+class PendingName(PendingExprGeneric[Name]):
     def __init__(self, node: Name, nsp: Namespace):
         self.node = node
         self.nsp = nsp
@@ -81,10 +91,7 @@ class PendingName(PendingExprGeneric):
         return self.nsp.get_load_name(self.node.id)
 
 
-_CompNode: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
-
-
-class PendingComp(PendingExprGeneric):
+class PendingComp(PendingExprGeneric[_CompNode]):
     target_names: set[str]
     node: _CompNode
 
@@ -130,12 +137,13 @@ class ExpressionTransformer:
         elif isinstance(node, (ListComp, SetComp, DictComp, GeneratorExp)):
             return PendingComp(node, self.nsp)
         else:
-            return PendingExprGeneric(node)
+            return PendingExpr(node)
 
     def cvt(self, node: expr):
-        unconverted = node
+        unconverted: expr | None = node
         converted = None
         while True:
+            assert unconverted is not None
             pending_node = self.get_pending(unconverted)
             self.pending_stack.append(pending_node)
             unconverted = None
