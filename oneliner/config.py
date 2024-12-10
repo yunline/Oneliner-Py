@@ -1,11 +1,12 @@
-from typing import Any, Literal
+from typing import Any
 
 
 class Cfg:
-    tp: Any
+    tp: list | type
     default: Any
     value: Any
     docs: str
+    name: str
 
     def __init__(self, tp, default, docs=""):
         self.tp = tp
@@ -13,8 +14,20 @@ class Cfg:
         self.docs = docs
         self.value = default
 
+    def __set_name__(self, owner, name):
+        self.name = name
+
     def __set__(self, instance, value):
-        # todo: verify the value
+        # varify the input value
+        if isinstance(self.tp, list):
+            if value not in self.tp:
+                raise ValueError(
+                    f"Invalid value of config '{self.name}', "
+                    f"got '{value}', expected {self.tp}"
+                )
+        else:
+            if not isinstance(value, self.tp):
+                raise ValueError(f"Invalid value of config '{self.name}'")
         self.value = value
 
     def __get__(self, instance, owner=None):
@@ -23,12 +36,12 @@ class Cfg:
 
 class Configs:
     unparser = Cfg(
-        Literal["ast.unparse", "oneliner"],
+        ["ast.unparse", "oneliner"],
         "ast.unparse",
         "Choose the unparser",
     )
     expr_wrapper = Cfg(
-        Literal["list", "chain_call"],
+        ["list", "chain_call"],
         "chain_call",
         "Choose the expr_wrapper",
     )

@@ -54,8 +54,14 @@ else:
 for input_config in args_configs:
     assert isinstance(input_config, str)
 
-    # todo: better error message
-    config_name, config_value = input_config.split("=")
+    splited_input_config = input_config.split("=")
+
+    if len(splited_input_config) != 2:
+        raise TypeError(
+            "Invalid syntax of -C parameter, expected -C<config_name>=<config_value>"
+        )
+
+    config_name, config_value = splited_input_config
 
     if not hasattr(cfg, config_name):
         raise ValueError(f"Unknown convig name '{config_name}'")
