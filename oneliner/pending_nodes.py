@@ -30,7 +30,7 @@ __all__ = [
 
 
 class PendingNode:
-    def __init__(self, node: AST, nsp: Namespace, context: Context):
+    def __init__(self, node: AST, nsp: Namespace, context: "Context"):
         self.iter_node = self._iter_nodes()
         self.nsp = nsp
         self.nsp_global = context.nsp_global
@@ -936,16 +936,17 @@ class PendingFunctionDef(_PendingCompoundStmt):
                 )
             )
 
-        body.extend(self.converted_body)
+        if self.context.configs.expr_wrapper == "list":
+            body.extend(self.converted_body)
+        else:
+            body.append(self.context.expr_wraper(self.converted_body))
         body.append(self.internal_nsp.return_value_expr)
+        body_expr = utils.list_wrapper(body)
 
-        body_expr: expr
         body_expr = Lambda(
             args=self.converted_args,
             body=Subscript(
-                value=utils.list_wrapper(
-                    body
-                ),  # todo: not the full body needs list_wrapper
+                value=body_expr,
                 slice=Constant(value=-1),
                 ctx=Load(),
             ),
