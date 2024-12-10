@@ -28,13 +28,38 @@ __all__ = [
     "PendingImportFrom",
 ]
 
+T = typing.TypeVar(
+    "T",
+    Module,
+    Expr,
+    If,
+    While,
+    For,
+    Break,
+    Continue,
+    Pass,
+    Assign | AnnAssign,
+    AugAssign,
+    FunctionDef,
+    Return,
+    Global,
+    Nonlocal,
+    ClassDef,
+    Import,
+    ImportFrom,
+)
+L = typing.TypeVar("L", While, For)
 
-class PendingNode:
-    def __init__(self, node: AST, nsp: Namespace, context: "Context"):
+
+class PendingNode(typing.Generic[T]):
+    node: T
+
+    def __init__(self, node: T, nsp: Namespace, context: "Context"):
         self.iter_node = self._iter_nodes()
         self.nsp = nsp
         self.nsp_global = context.nsp_global
         self.context = context
+        self.node = node
 
     def get_result(self) -> list[expr]:
         raise NotImplementedError()  # pragma: no cover
@@ -49,12 +74,11 @@ class PendingNode:
         raise NotImplementedError()  # pragma: no cover
 
 
-class PendingModule(PendingNode):
+class PendingModule(PendingNode[Module]):
     converted_body: list[expr]
 
     def __init__(self, node: Module, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
         self.converted_body = []
 
     def _iter_nodes(self) -> typing.Generator[AST, list[expr], None]:
@@ -86,16 +110,13 @@ class PendingModule(PendingNode):
         return self.converted_body
 
 
-class PendingExpr(PendingNode):
-    def __init__(self, node: Expr, nsp: Namespace, context: Context):
-        super().__init__(node, nsp, context)
-        self.node = node
+class PendingExpr(PendingNode[Expr]):
 
     def get_result(self) -> list[expr]:
         return [expr_transf(self.nsp, self.node.value)]
 
 
-class _PendingCompoundStmt(PendingNode):
+class _PendingCompoundStmt(PendingNode[T]):
     """
     CompoundStmt:
         PendingIf
@@ -145,13 +166,12 @@ class _PendingCompoundStmt(PendingNode):
         converted_branch.extend(stack[0])
 
 
-class PendingIf(_PendingCompoundStmt):
+class PendingIf(_PendingCompoundStmt[If]):
     converted_body: list[expr]
     converted_orelse: list[expr]
 
     def __init__(self, node: If, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
 
         self.converted_body = []
         self.converted_orelse = []
@@ -193,11 +213,8 @@ class PendingIf(_PendingCompoundStmt):
         )
 
 
-T = typing.TypeVar("T", While, For)
-
-
-class _PendingLoop(_PendingCompoundStmt, typing.Generic[T]):
-    node: T  # Original node
+class _PendingLoop(_PendingCompoundStmt[L]):
+    node: L  # Original node
     flow_ctrl_interrupt_expr: Name
     flow_ctrl_interrupt_used: bool
     interrupt_node_bodies: list[
@@ -247,7 +264,6 @@ class PendingWhile(_PendingLoop[While]):
 
     def __init__(self, node: While, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
 
         self.converted_body = []
         self.converted_orelse = []
@@ -488,7 +504,7 @@ class PendingFor(_PendingLoop[For]):
         return for_loop_final
 
 
-class PendingBreak(PendingNode):
+class PendingBreak(PendingNode[Break]):
     def __init__(self, node: Break, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
         if len(self.nsp.loop_stack) == 0:
@@ -525,7 +541,7 @@ class PendingBreak(PendingNode):
         return [List(elts=return_value, ctx=Load())]
 
 
-class PeindingContinue(PendingNode):
+class PeindingContinue(PendingNode[Continue]):
     def __init__(self, node: Continue, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
         if len(self.nsp.loop_stack) == 0:
@@ -542,16 +558,12 @@ class PeindingContinue(PendingNode):
         return [List(elts=return_value, ctx=Load())]
 
 
-class PendingPass(PendingNode):
+class PendingPass(PendingNode[Pass]):
     def get_result(self) -> list[expr]:
         return [Constant(value=...)]
 
 
-class PendingAssign(PendingNode):
-    def __init__(self, node: Assign | AnnAssign, nsp: Namespace, context: Context):
-        super().__init__(node, nsp, context)
-        self.node = node
-
+class PendingAssign(PendingNode[Assign | AnnAssign]):
     def assign_auto(self, target: AST, value: expr) -> list[expr]:
         if isinstance(target, Name):
             return [self.assign_name(target, value)]
@@ -679,11 +691,7 @@ class PendingAssign(PendingNode):
         return return_list
 
 
-class PendingAugAssign(PendingNode):
-    def __init__(self, node: AugAssign, nsp: Namespace, context: Context):
-        super().__init__(node, nsp, context)
-        self.node = node
-
+class PendingAugAssign(PendingNode[AugAssign]):
     _op_dict: dict[type[operator], str] = {
         Add: "__iadd__",
         BitAnd: "__iand__",
@@ -821,14 +829,13 @@ class PendingAugAssign(PendingNode):
         return return_list
 
 
-class PendingFunctionDef(_PendingCompoundStmt):
+class PendingFunctionDef(_PendingCompoundStmt[FunctionDef]):
     has_internal_namespace = True
     internal_nsp: NamespaceFunction
     converted_body: list[expr]
 
     def __init__(self, node: FunctionDef, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
 
         for tmp_nsp in self.nsp.inner_nsp:
             if (
@@ -970,13 +977,12 @@ class PendingFunctionDef(_PendingCompoundStmt):
         return [self.nsp.get_assign(self.node.name, body_expr)]
 
 
-class PendingReturn(PendingNode):
+class PendingReturn(PendingNode[Return]):
     def __init__(self, node: Return, nsp: Namespace, context: Context):
         if not isinstance(nsp, NamespaceFunction):
             raise SyntaxError(utils.ast_debug_info(node) + "'return' outside function")
 
         super().__init__(node, nsp, context)
-        self.node = node
         self.nsp: NamespaceFunction
 
         self.nsp.return_cnt += 1
@@ -1020,24 +1026,23 @@ class PendingReturn(PendingNode):
         return [List(elts=return_list, ctx=Load())]
 
 
-class PendingGlobal(PendingNode):
+class PendingGlobal(PendingNode[Global]):
     def get_result(self) -> list[expr]:
         return []
 
 
-class PendingNonlocal(PendingNode):
+class PendingNonlocal(PendingNode[Nonlocal]):
     def get_result(self) -> list[expr]:
         return []
 
 
-class PendingClassDef(_PendingCompoundStmt):
+class PendingClassDef(_PendingCompoundStmt[ClassDef]):
     has_internal_namespace = True
     internal_nsp: NamespaceClass
     converted_body: list[expr]
 
     def __init__(self, node: ClassDef, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
 
         for tmp_nsp in self.nsp.inner_nsp:
             if (
@@ -1176,10 +1181,9 @@ class PendingClassDef(_PendingCompoundStmt):
         return return_list
 
 
-class PendingImport(PendingNode):
+class PendingImport(PendingNode[Import]):
     def __init__(self, node: Import, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
         self.nsp_global.use_importlib = True
 
     def get_result(self) -> list[expr]:
@@ -1207,10 +1211,9 @@ class PendingImport(PendingNode):
         return result
 
 
-class PendingImportFrom(PendingNode):
+class PendingImportFrom(PendingNode[ImportFrom]):
     def __init__(self, node: ImportFrom, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
 
     def get_result(self) -> list[expr]:
         result: list[expr] = []
