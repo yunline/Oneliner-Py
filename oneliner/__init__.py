@@ -1,7 +1,7 @@
-from oneliner.convert import OnelinerConvertor
-from oneliner.expr_unparse import unparse
-from oneliner.config import Configs
 import oneliner.utils
+from oneliner.config import Configs
+from oneliner.convert import OnelinerConvertor
+from oneliner.expr_unparse import expr_unparse
 
 __all__ = ["OnelinerConvertor", "convert_code_string"]
 
@@ -24,6 +24,6 @@ def convert_code_string(code: str, filename="<string>", configs:Configs|None=Non
     out = OnelinerConvertor().cvt(ast_root, symtable_root)
 
     if configs.unparser=="oneliner":
-        return unparse(out)
+        return expr_unparse(out)
     else:
         return ast.unparse(out).replace("\n", "")

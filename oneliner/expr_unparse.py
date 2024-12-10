@@ -111,7 +111,7 @@ def get_UnaryOp_precedence(op):
     return INF
 
 
-ast_prec_map: dict[type[AST] : int] = {
+ast_prec_map: dict[type[AST], int] = {
     Constant: PERC_NAME,
     JoinedStr: PERC_NAME,
     FormattedValue: PERC_NAME,
@@ -347,6 +347,7 @@ def unparse_NamedExpr(node: NamedExpr):
 def unparse_Lambda(node: Lambda):
     body = yield PREC_LAMBDA, node.body
     arg_def_list = []
+    default: expr | None
 
     # handle posonly args
     for posonly in node.args.posonlyargs:
@@ -499,7 +500,7 @@ class _Node:
             self.gen = gen_func(node)
 
 
-def unparse(node: expr):
+def expr_unparse(node: expr) -> str:
     stack: list[_Node] = []
     stack.append(_Node(PREC_EXPR, node, '"'))
     converted: str | None = None
@@ -515,4 +516,5 @@ def unparse(node: expr):
             if inner_node.precedence > inner_node.outer_precedence:
                 converted = f"({converted})"
 
+    assert converted is not None
     return converted

@@ -1,6 +1,7 @@
 import itertools
 import symtable
 import sys
+import typing
 from ast import *
 
 from oneliner.reserved_identifiers import *
@@ -13,18 +14,16 @@ __all__ = [
     "NamespaceClass",
 ]
 
+T = typing.TypeVar("T", symtable.SymbolTable, symtable.Function, symtable.Class)
 
-class Namespace:
-    symt: symtable.SymbolTable
+
+class Namespace(typing.Generic[T]):
+    symt: T
     outer_nsp: "Namespace"
     inner_nsp: list["Namespace"]
 
     loop_stack: list["oneliner.pending_nodes._PendingLoop"]
     comp_stack: list["oneliner.expr_transform.PendingComp"]
-
-    @classmethod
-    def _generate(cls):
-        raise NotImplementedError()  # pragma: no cover
 
     def __init__(self):
         self.loop_stack = []
@@ -47,7 +46,7 @@ class Namespace:
         raise NotImplementedError()  # pragma: no cover
 
 
-class NamespaceGlobal(Namespace):
+class NamespaceGlobal(Namespace[symtable.SymbolTable]):
     use_itertools: bool
     use_importlib: bool
     use_preset_iter_wrapper: bool
@@ -72,7 +71,7 @@ class NamespaceGlobal(Namespace):
         return Name(id=name, ctx=Load())
 
 
-class NamespaceFunction(Namespace):
+class NamespaceFunction(Namespace[symtable.Function]):
     inner_nonlocal_names: set[str]  # names that is nonlocal in INNER namespace
     nonlocal_parameters: set[str]  # parameters that is nonlocal in INNER namespace
     outer_nonlocal_map: dict[str, "NamespaceFunction"]
@@ -82,7 +81,8 @@ class NamespaceFunction(Namespace):
     is_method: bool  # whether the function is a method
     zero_arg_super_used: bool  # whether the method uses a zero-argument super
 
-    symt: symtable.Function  # symbol table of this namespace
+    # list of bodies of converted return nodes
+    return_node_bodies: list[list[expr]]
 
     @classmethod
     def _generate(cls, symt: symtable.Function, stack: list[Namespace]):
@@ -101,7 +101,7 @@ class NamespaceFunction(Namespace):
 
         if (
             isinstance(stack[-1], NamespaceClass)
-            and self.symt.get_name() in stack[-1].symt.get_methods()
+            and self.symt.get_name() in stack[-1].symt.get_methods()  # type: ignore # todo:don't use get_methods
         ):
             self.is_method = True
 
@@ -149,9 +149,8 @@ class NamespaceFunction(Namespace):
         self.return_value_expr = Name(id=ol_name(OL_RETURN_VALUE))
         self.flow_ctrl_return_expr = Name(id=ol_name(OL_RETURN))
         self.flow_ctrl_return_used = False
-        self.return_node_bodies: list[list[AST]] = (
-            []
-        )  # list of bodies of converted return nodes
+
+        self.return_node_bodies = []
 
         # use a dict to emulate the behavior of nonlocal
         self.nonlocal_dict_expr = Name(id=ol_name(OL_NONLOCAL_DICT))
@@ -219,9 +218,7 @@ class NamespaceFunction(Namespace):
             return Name(id=name, ctx=Load())
 
 
-class NamespaceClass(Namespace):
-    symt: symtable.Class
-
+class NamespaceClass(Namespace[symtable.Class]):
     # NamespaceClass doesn't have inner_nonlocal_names
 
     outer_nonlocal_map: dict[str, "NamespaceFunction"]

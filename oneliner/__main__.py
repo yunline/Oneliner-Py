@@ -1,18 +1,15 @@
 import argparse
 
 import oneliner
-import oneliner.version
 import oneliner.config
+import oneliner.version
 
 parser = argparse.ArgumentParser(
     description="Convert python scripts into oneliner expression."
 )
 
 parser.add_argument(
-    "-C",
-    action="append",
-    type=str,
-    help="Set configs of oneliner convertion"
+    "-C", action="append", type=str, help="Set configs of oneliner convertion"
 )
 
 parser.add_argument(
@@ -42,7 +39,6 @@ parser.add_argument(
 parser.add_argument(
     "--unparser",
     type=str,
-    default="ast.unparse",
     choices=["ast.unparse", "oneliner"],
 )
 
@@ -50,20 +46,29 @@ args = parser.parse_args()
 
 cfg = oneliner.config.Configs()
 
-for input_config in args.C:
+if args.C is None:
+    args_configs = []
+else:
+    args_configs = args.C
+
+for input_config in args_configs:
     assert isinstance(input_config, str)
-    
+
     # todo: better error message
     config_name, config_value = input_config.split("=")
 
-    setattr(cfg,config_name,config_value)
+    if not hasattr(cfg, config_name):
+        raise ValueError(f"Unknown convig name '{config_name}'")
+
+    setattr(cfg, config_name, config_value)
 
 if args.unparser is not None:
     import warnings
+
     warnings.warn(
         f"'--unparser {args.unparser}' is deprecated,"
         f" use '-Cunparser={args.unparser}' instead",
-        DeprecationWarning
+        DeprecationWarning,
     )
     cfg.unparser = args.unparser
 
