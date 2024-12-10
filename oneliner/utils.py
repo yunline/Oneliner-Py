@@ -2,6 +2,7 @@ import random
 import typing
 from ast import *
 
+from oneliner.config import Configs
 from oneliner.reserved_identifiers import OL_RUN
 
 
@@ -24,16 +25,6 @@ def convert_slice(_slice: Slice) -> Call:
         ],
         keywords=[],
     )
-
-
-def wrap_expr(nodes: list[expr]) -> expr:
-    """Wrap a list of expr nodes as one expr"""
-    if len(nodes) == 0:
-        return Constant(value=...)
-    if len(nodes) == 1:
-        return nodes[0]
-
-    return _wrap_expr(nodes)
 
 
 def list_wrapper(nodes: list[expr]) -> expr:
@@ -66,7 +57,22 @@ def chain_call_wrapper(nodes: list[expr]) -> expr:
     return call
 
 
-_wrap_expr = chain_call_wrapper
+def get_expr_wrapper(configs: Configs):
+    if configs.expr_wrapper == "chain_call":
+        _wrapper_internal = chain_call_wrapper
+    else:
+        _wrapper_internal = list_wrapper
+
+    def wraper(nodes: list[expr]) -> expr:
+        """Wrap a list of expr nodes as one expr"""
+        if len(nodes) == 0:
+            return Constant(value=...)
+        if len(nodes) == 1:
+            return nodes[0]
+
+        return _wrapper_internal(nodes)
+
+    return wraper
 
 
 def never_call(*args, **kwargs) -> typing.NoReturn:

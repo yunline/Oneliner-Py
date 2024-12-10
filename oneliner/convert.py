@@ -2,45 +2,51 @@ import ast
 import symtable
 
 import oneliner.utils as utils
+from oneliner.config import Configs
+from oneliner.contex import Context
 from oneliner.namespaces import *
 from oneliner.pending_nodes import *
 
+ast2pending: dict[type[ast.AST], type[PendingNode]] = {
+    ast.Module: PendingModule,
+    ast.Expr: PendingExpr,
+    ast.If: PendingIf,
+    ast.While: PendingWhile,
+    ast.For: PendingFor,
+    ast.Break: PendingBreak,
+    ast.Continue: PeindingContinue,
+    ast.Pass: PendingPass,
+    ast.Assign: PendingAssign,
+    ast.AnnAssign: PendingAssign,
+    ast.AugAssign: PendingAugAssign,
+    ast.FunctionDef: PendingFunctionDef,
+    ast.Return: PendingReturn,
+    ast.Global: PendingGlobal,
+    ast.Nonlocal: PendingNonlocal,
+    ast.ClassDef: PendingClassDef,
+    ast.Import: PendingImport,
+    ast.ImportFrom: PendingImportFrom,
+}
 
-class OnelinerConvertor:
-    pending_node_stack: list[PendingNode]
-    nsp_stack: list[Namespace]
 
-    def __init__(self) -> None:
-        self.pending_node_stack = []
-        self.nsp_stack = []
+def convert(
+    ast_root: ast.Module, symtable_root: symtable.SymbolTable, configs: Configs
+) -> ast.expr:
+    pending_node_stack: list[PendingNode] = []
+    nsp_global = generate_nsp(symtable_root)
+    nsp_stack: list[Namespace] = [nsp_global]
+    ctx = Context(nsp_global, configs)
 
-    _pending_map: dict[type[ast.AST], type[PendingNode]] = {
-        ast.Module: PendingModule,
-        ast.Expr: PendingExpr,
-        ast.If: PendingIf,
-        ast.While: PendingWhile,
-        ast.For: PendingFor,
-        ast.Break: PendingBreak,
-        ast.Continue: PeindingContinue,
-        ast.Pass: PendingPass,
-        ast.Assign: PendingAssign,
-        ast.AnnAssign: PendingAssign,
-        ast.AugAssign: PendingAugAssign,
-        ast.FunctionDef: PendingFunctionDef,
-        ast.Return: PendingReturn,
-        ast.Global: PendingGlobal,
-        ast.Nonlocal: PendingNonlocal,
-        ast.ClassDef: PendingClassDef,
-        ast.Import: PendingImport,
-        ast.ImportFrom: PendingImportFrom,
-    }
+    def pending_top() -> PendingNode:
+        """Get the stack top of self.pending_node_stack"""
+        return pending_node_stack[-1]
 
-    def get_pending_node(self, node: ast.AST) -> PendingNode:
+    def get_pending_node(node: ast.AST) -> PendingNode:
         try:
-            return self._pending_map[type(node)](
+            return ast2pending[type(node)](
                 node,
-                nsp=self.nsp_stack[-1],
-                nsp_global=self.nsp_global,
+                nsp=nsp_stack[-1],
+                context=ctx,
             )
         except KeyError as err:
             raise RuntimeError(
@@ -48,39 +54,30 @@ class OnelinerConvertor:
                 + f"Unable to convert node '{type(node).__name__}'"
             ) from err
 
-    def pending_top(self) -> PendingNode:
-        """Get the stack top of self.pending_node_stack"""
-        return self.pending_node_stack[-1]
+    unconverted: None | ast.AST = ast_root
+    result_nodes = None
+    while True:
+        assert unconverted is not None  # to make type checker happy
+        pending_node = get_pending_node(unconverted)
+        pending_node_stack.append(pending_node)
+        if pending_node.has_internal_namespace:
+            nsp_stack.append(pending_node.get_internal_namespace())
+        unconverted = None
+        while unconverted is None:
+            try:
+                # try to get unconverted node
+                if result_nodes is None:
+                    unconverted = next(pending_top().iter_node)
+                else:
+                    unconverted = pending_top().iter_node.send(result_nodes)
+                    result_nodes = None
+            except StopIteration:
+                # no more unconverted node, pending node is complete
+                complete_node = pending_node_stack.pop()
+                if complete_node.has_internal_namespace:
+                    nsp_stack.pop()
+                result_nodes = complete_node.get_result()
 
-    def cvt(
-        self, ast_root: ast.Module, symtable_root: symtable.SymbolTable
-    ) -> ast.expr:
-        self.nsp_global = generate_nsp(symtable_root)
-        self.nsp_stack.append(self.nsp_global)
-        unconverted: None | ast.AST = ast_root
-        result_nodes = None
-        while True:
-            assert unconverted is not None  # to make type checker happy
-            pending_node = self.get_pending_node(unconverted)
-            self.pending_node_stack.append(pending_node)
-            if pending_node.has_internal_namespace:
-                self.nsp_stack.append(pending_node.get_internal_namespace())
-            unconverted = None
-            while unconverted is None:
-                try:
-                    # try to get unconverted node
-                    if result_nodes is None:
-                        unconverted = next(self.pending_top().iter_node)
-                    else:
-                        unconverted = self.pending_top().iter_node.send(result_nodes)
-                        result_nodes = None
-                except StopIteration:
-                    # no more unconverted node, pending node is complete
-                    complete_node = self.pending_node_stack.pop()
-                    if complete_node.has_internal_namespace:
-                        self.nsp_stack.pop()
-                    result_nodes = complete_node.get_result()
-
-                    if len(self.pending_node_stack) == 0:
-                        assert len(self.nsp_stack) == 1
-                        return utils.chain_call_wrapper(result_nodes)
+                if len(pending_node_stack) == 0:
+                    assert len(nsp_stack) == 1
+                    return ctx.expr_wraper(result_nodes)
