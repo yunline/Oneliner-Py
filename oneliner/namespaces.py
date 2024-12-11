@@ -25,10 +25,11 @@ class Namespace(typing.Generic[T]):
     loop_stack: list["oneliner.pending_nodes._PendingLoop"]
     comp_stack: list["oneliner.expr_transform.PendingComp"]
 
-    def __init__(self):
+    def __init__(self, symt: T, stack: list["Namespace"]):
         self.loop_stack = []
         self.comp_stack = []
         self.inner_nsp = []
+        self.symt = symt
 
     def get_assign(self, name: str, value_expr: expr) -> expr:
         """
@@ -47,22 +48,9 @@ class Namespace(typing.Generic[T]):
 
 
 class NamespaceGlobal(Namespace[symtable.SymbolTable]):
-    use_itertools: bool
-    use_importlib: bool
-    use_preset_iter_wrapper: bool
-
-    @classmethod
-    def _generate(cls, symt: symtable.SymbolTable):
-        self = cls()
-        self.symt = symt
-        return self
-
-    def __init__(self):
-        super().__init__()
-
-        self.use_itertools = False
-        self.use_importlib = False
-        self.use_preset_iter_wrapper = False
+    use_itertools: bool = False
+    use_importlib: bool = False
+    use_preset_iter_wrapper: bool = False
 
     def get_assign(self, name: str, value_expr: expr) -> NamedExpr:
         return NamedExpr(target=Name(id=name, ctx=Store()), value=value_expr)
@@ -78,26 +66,32 @@ class NamespaceFunction(Namespace[symtable.Function]):
     # keys   --> nonlocal names of THIS namespace
     # values --> where the nonlocal name was born
 
-    is_method: bool  # whether the function is a method
-    zero_arg_super_used: bool  # whether the method uses a zero-argument super
+    is_method: bool = False  # whether the function is a method
+    zero_arg_super_used: bool = False  # whether the method uses a zero-argument super
 
     # list of bodies of converted return nodes
     return_node_bodies: list[list[expr]]
 
-    @classmethod
-    def _generate(cls, symt: symtable.Function, stack: list[Namespace]):
+    def __init__(self, symt: symtable.Function, stack: list[Namespace]):
         # don't push/pop the stack in this function
+        super().__init__(symt, stack)
 
-        self = cls()
-        self.symt = symt
+        self.return_cnt = 0
+
+        self.return_value_expr = Name(id=ol_name(OL_RETURN_VALUE))
+        self.flow_ctrl_return_expr = Name(id=ol_name(OL_RETURN))
+        self.flow_ctrl_return_used = False
+
+        self.return_node_bodies = []
+
+        # use a dict to emulate the behavior of nonlocal
+        self.nonlocal_dict_expr = Name(id=ol_name(OL_NONLOCAL_DICT))
 
         self.outer_nsp = stack[-1]
         self.outer_nsp.inner_nsp.append(self)
         self.inner_nonlocal_names = set()
         self.nonlocal_parameters = set()
         self.outer_nonlocal_map = {}
-        self.is_method = False
-        self.zero_arg_super_used = False
 
         if (
             isinstance(stack[-1], NamespaceClass)
@@ -138,22 +132,6 @@ class NamespaceFunction(Namespace[symtable.Function]):
                 raise RuntimeError(  # pragma: no cover
                     f"Unable to search the origin of nonlocal/free '{nonlocal_free}'"
                 )
-
-        return self
-
-    def __init__(self):
-        super().__init__()
-
-        self.return_cnt = 0
-
-        self.return_value_expr = Name(id=ol_name(OL_RETURN_VALUE))
-        self.flow_ctrl_return_expr = Name(id=ol_name(OL_RETURN))
-        self.flow_ctrl_return_used = False
-
-        self.return_node_bodies = []
-
-        # use a dict to emulate the behavior of nonlocal
-        self.nonlocal_dict_expr = Name(id=ol_name(OL_NONLOCAL_DICT))
 
     def get_flow_ctrl_expr(self):
         self.flow_ctrl_return_used = True
@@ -228,12 +206,10 @@ class NamespaceClass(Namespace[symtable.Class]):
     if sys.version_info < (3, 12):
         globals_used_in_comp: set[str]  # global names used in comprehensions
 
-    @classmethod
-    def _generate(cls, symt: symtable.Class, stack: list[Namespace]):
+    def __init__(self, symt: symtable.Class, stack: list[Namespace]):
         # don't push/pop the stack in this function
-
-        self = cls()
-        self.symt = symt
+        super().__init__(symt, stack)
+        self.class_member_dict_expr = Name(id=ol_name(OL_CLASS_DICT))
 
         self.outer_nsp = stack[-1]
         self.outer_nsp.inner_nsp.append(self)
@@ -268,12 +244,6 @@ class NamespaceClass(Namespace[symtable.Class]):
                 raise RuntimeError(  # pragma: no cover
                     f"Unable to search the origin of nonlocal/free '{nonlocal_free}'"
                 )
-
-        return self
-
-    def __init__(self):
-        super().__init__()
-        self.class_member_dict_expr = Name(id=ol_name(OL_CLASS_DICT))
 
     def get_assign(self, name: str, value_expr: expr) -> expr:
         symbol = self.symt.lookup(name)
@@ -364,8 +334,9 @@ def update_globals_from_lambda_or_comp(symt: symtable.Function, stack: list[Name
 
 def generate_nsp(symt: symtable.SymbolTable):
     walk_stack = []
-    root = NamespaceGlobal._generate(symt)
-    generate_stack: list[Namespace] = [root]
+    generate_stack: list[Namespace] = []
+    root = NamespaceGlobal(symt, generate_stack)
+    generate_stack.append(root)
 
     walk_stack.append(iter(symt.get_children()))
     while walk_stack:
@@ -384,13 +355,9 @@ def generate_nsp(symt: symtable.SymbolTable):
                         update_globals_from_lambda_or_comp(child_symt, generate_stack)
                         continue
 
-                generate_stack.append(
-                    NamespaceFunction._generate(child_symt, generate_stack)
-                )
+                generate_stack.append(NamespaceFunction(child_symt, generate_stack))
             elif isinstance(child_symt, symtable.Class):
-                generate_stack.append(
-                    NamespaceClass._generate(child_symt, generate_stack)
-                )
+                generate_stack.append(NamespaceClass(child_symt, generate_stack))
             else:  # pragma: no cover
                 raise RuntimeError("Unknown type of child symbol table")
             walk_stack.append(iter(child_symt.get_children()))
