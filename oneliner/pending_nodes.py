@@ -222,8 +222,8 @@ class _PendingLoop(_PendingCompoundStmt[L]):
     ]  # list of bodies of converted return/break/continue nodes
     converted_body: list[expr]  # converted body branch
     converted_orelse: list[expr]  # converted orelse branch
-    interrupt_cnt: int  # Continue, Break and Return will increase this counter
-    break_cnt: int  # Break and Return will increase this counter
+    interrupt_cnt: int = 0  # Continue, Break and Return will increase this counter
+    break_cnt: int = 0  # Break and Return will increase this counter
 
     def get_flow_ctrl_expr(self):
         self.flow_ctrl_interrupt_used = True
@@ -267,9 +267,6 @@ class PendingWhile(_PendingLoop[While]):
 
         self.converted_body = []
         self.converted_orelse = []
-
-        self.break_cnt = 0
-        self.interrupt_cnt = 0
 
         # flow-control vars
         self.flow_ctrl_break_expr = Name(id=ol_name(OL_BREAK))
@@ -390,13 +387,9 @@ class PendingFor(_PendingLoop[For]):
 
     def __init__(self, node: For, nsp: Namespace, context: Context):
         super().__init__(node, nsp, context)
-        self.node = node
 
         self.converted_body = []
         self.converted_orelse = []
-
-        self.break_cnt = 0
-        self.interrupt_cnt = 0
 
         # flow-control vars
         self.flow_ctrl_wrapped_iter_expr = Name(id=ol_name(OL_WRAPPED_ITER))
