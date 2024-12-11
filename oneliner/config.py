@@ -45,4 +45,9 @@ class Configs:
         "chain_call",
         "Choose the expr_wrapper",
     )
+    if_style = Cfg(
+        ["if_expr", "short_circuit"],
+        "if_expr",
+        "Choose the style of the convertion of 'if' statements",
+    )
     config_names = tuple(name for name in locals() if not name.startswith("__"))

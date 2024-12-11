@@ -180,13 +180,18 @@ class PendingIf(_PendingCompoundStmt[If]):
         self.converted_orelse = []
 
     def get_result(self) -> list[expr]:
-        return [
-            IfExp(
-                test=expr_transf(self.nsp, self.node.test),
-                body=self.nsp_global.expr_wraper(self.converted_body),
-                orelse=self.nsp_global.expr_wraper(self.converted_orelse),
-            )
-        ]
+        test = expr_transf(self.nsp, self.node.test)
+        body = self.nsp_global.expr_wraper(self.converted_body)
+        orelse = self.nsp_global.expr_wraper(self.converted_orelse)
+        if self.nsp_global.configs.if_style == "short_circuit":
+            if len(self.converted_orelse)>0:
+                body_or_true = BoolOp(op=Or(), values=[body, Constant(value=1)])
+                semi_if = BoolOp(op=And(), values=[test, body_or_true])
+                return [BoolOp(op=Or(),values=[semi_if, orelse])]
+            else:
+                return [BoolOp(op=And(), values=[test, body])]
+        else: # if_style=="if_expr"
+            return [IfExp(test=test, body=body, orelse=orelse)]
 
     def _iter_nodes(self) -> typing.Generator[AST, list[expr], None]:
         if self.nsp.loop_stack:
