@@ -4,6 +4,7 @@ import sys
 import typing
 from ast import *
 
+from oneliner.config import Configs
 from oneliner.reserved_identifiers import *
 
 __all__ = [
@@ -51,6 +52,13 @@ class NamespaceGlobal(Namespace[symtable.SymbolTable]):
     use_itertools: bool = False
     use_importlib: bool = False
     use_preset_iter_wrapper: bool = False
+
+    configs: Configs
+    expr_wraper: typing.Callable[[list[expr]], expr]
+
+    def load_configs(self, configs: Configs):
+        self.configs = configs
+        self.expr_wraper = utils.get_expr_wrapper(configs)
 
     def get_assign(self, name: str, value_expr: expr) -> NamedExpr:
         return NamedExpr(target=Name(id=name, ctx=Store()), value=value_expr)
@@ -332,10 +340,11 @@ def update_globals_from_lambda_or_comp(symt: symtable.Function, stack: list[Name
     stack[-1].globals_used_in_comp.update(_globals)
 
 
-def generate_nsp(symt: symtable.SymbolTable):
+def generate_nsp(symt: symtable.SymbolTable, configs: Configs):
     walk_stack = []
     generate_stack: list[Namespace] = []
     root = NamespaceGlobal(symt, generate_stack)
+    root.load_configs(configs)
     generate_stack.append(root)
 
     walk_stack.append(iter(symt.get_children()))

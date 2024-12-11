@@ -3,7 +3,6 @@ import symtable
 
 import oneliner.utils as utils
 from oneliner.config import Configs
-from oneliner.contex import Context
 from oneliner.namespaces import Namespace, generate_nsp
 from oneliner.pending_nodes import *
 
@@ -33,9 +32,8 @@ def convert(
     ast_root: ast.Module, symtable_root: symtable.SymbolTable, configs: Configs
 ) -> ast.expr:
     pending_node_stack: list[PendingNode] = []
-    nsp_global = generate_nsp(symtable_root)
+    nsp_global = generate_nsp(symtable_root, configs)
     nsp_stack: list[Namespace] = [nsp_global]
-    ctx = Context(nsp_global, configs)
 
     def pending_top() -> PendingNode:
         """Get the stack top of self.pending_node_stack"""
@@ -46,7 +44,7 @@ def convert(
             return ast2pending[type(node)](
                 node,
                 nsp=nsp_stack[-1],
-                context=ctx,
+                nsp_global=nsp_global,
             )
         except KeyError as err:
             raise RuntimeError(
@@ -80,4 +78,4 @@ def convert(
 
                 if len(pending_node_stack) == 0:
                     assert len(nsp_stack) == 1
-                    return ctx.expr_wraper(result_nodes)
+                    return nsp_global.expr_wraper(result_nodes)
