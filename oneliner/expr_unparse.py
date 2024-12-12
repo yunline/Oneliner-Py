@@ -45,24 +45,52 @@ cmpop_map: dict[type[cmpop], str] = {
     NotIn: " not in ",
 }
 enum = itertools.count()
-PERC_NAME = next(enum)
-PERC_ATTR = next(enum)
+PREC_NAME = next(enum)
+PREC_ATTR = next(enum)
+
+PREC_AWAIT_SLOT = next(enum)
 PREC_AWAIT = next(enum)
+
+PREC_POW_SLOT_LEFT = next(enum)
 PREC_POW = next(enum)
 PREC_INV = next(enum)
+PREC_POW_SLOT_RIGHT = next(enum)
+
+PREC_MULT_SLOT_RIGHT = next(enum)
 PREC_MULT = next(enum)
+PREC_MULT_SLOT_LEFT = next(enum)
+
+PREC_ADD_SLOT_RIGHT = next(enum)
 PREC_ADD = next(enum)
+PREC_ADD_SLOT_LEFT = next(enum)
+
+PREC_SHIFT_SLOT_RIGHT = next(enum)
 PREC_SHIFT = next(enum)
+PREC_SHIFT_SLOT_LEFT = next(enum)
+
+PREC_BITAND_SLOT_RIGHT = next(enum)
 PREC_BITAND = next(enum)
+PREC_BITAND_SLOT_LEFT = next(enum)
+
+PREC_BITXOR_SLOT_RIGHT = next(enum)
 PREC_BITXOR = next(enum)
+PREC_BITXOR_SLOT_LEFT = next(enum)
+
+PREC_BITOR_SLOT_RIGHT = next(enum)
 PREC_BITOR = next(enum)
+PREC_BITOR_SLOT_LEFT = next(enum)
+
+
 PREC_COMP_ARGS = next(enum)
 PREC_COMPARE = next(enum)
 PREC_NOT = next(enum)
 PREC_AND = next(enum)
 PREC_OR = next(enum)
-PREC_IFEXP_LEFT = next(enum)
+
+PREC_IFEXP_SLOT_LEFT = next(enum)
 PREC_IFEXP = next(enum)
+PREC_IFEXP_SLOT_RIGHT = next(enum)
+
 PREC_FORMAT_EXPR = next(enum)
 PREC_LAMBDA = next(enum)
 PREC_EXPR = next(enum)
@@ -71,62 +99,54 @@ PREC_CALLARGS = next(enum)
 PREC_GENEXPR = next(enum)
 PREC_ONECALLARG = next(enum)
 PREC_YIELD = next(enum)
-INF = float("inf")
+INF = 1 << 16
+prec_t: typing.TypeAlias = int
 
 
-def get_BinOp_precedence(op):
-    op_type = type(op)
-    if op_type is Pow:
-        return PREC_POW
-    if op_type in [Mult, MatMult, Div, FloorDiv, Mod]:
-        return PREC_MULT
-    if op_type in [Add, Sub]:
-        return PREC_ADD
-    if op_type in [LShift, RShift]:
-        return PREC_SHIFT
-    if op_type is BitAnd:
-        return PREC_BITAND
-    if op_type is BitXor:
-        return PREC_BITXOR
-    if op_type is BitOr:
-        return PREC_BITOR
-    return INF
+binop_node_prec_map: dict[type[operator], prec_t] = {
+    Pow: PREC_POW,
+    Mult: PREC_MULT,
+    MatMult: PREC_MULT,
+    Div: PREC_MULT,
+    FloorDiv: PREC_MULT,
+    Mod: PREC_MULT,
+    Add: PREC_ADD,
+    Sub: PREC_ADD,
+    LShift: PREC_SHIFT,
+    RShift: PREC_SHIFT,
+    BitAnd: PREC_BITAND,
+    BitXor: PREC_BITXOR,
+    BitOr: PREC_BITOR,
+}
 
+boolop_node_prec_map: dict[type[boolop], prec_t] = {
+    And: PREC_AND,
+    Or: PREC_OR,
+}
 
-def get_BoolOp_precedence(op):
-    op_type = type(op)
-    if op_type is And:
-        return PREC_AND
-    if op_type is Or:
-        return PREC_OR
-    return INF
+unaryop_node_prec_map: dict[type[unaryop], prec_t] = {
+    UAdd: PREC_INV,
+    USub: PREC_INV,
+    Invert: PREC_INV,
+    Not: PREC_NOT,
+}
 
-
-def get_UnaryOp_precedence(op):
-    op_type = type(op)
-    if op_type in [UAdd, USub, Invert]:
-        return PREC_INV
-    if op_type is Not:
-        return PREC_NOT
-    return INF
-
-
-ast_prec_map: dict[type[AST], int] = {
-    Constant: PERC_NAME,
-    JoinedStr: PERC_NAME,
-    FormattedValue: PERC_NAME,
-    List: PERC_NAME,
-    ListComp: PERC_NAME,
-    Tuple: PERC_NAME,
-    Dict: PERC_NAME,
-    DictComp: PERC_NAME,
-    Set: PERC_NAME,
-    SetComp: PERC_NAME,
-    Name: PERC_NAME,
-    Starred: PERC_NAME,
-    Attribute: PERC_ATTR,
-    Subscript: PERC_ATTR,
-    Call: PERC_ATTR,
+node_prec_map: dict[type[AST], prec_t] = {
+    Constant: PREC_NAME,
+    JoinedStr: PREC_NAME,
+    FormattedValue: PREC_NAME,
+    List: PREC_NAME,
+    ListComp: PREC_NAME,
+    Tuple: PREC_NAME,
+    Dict: PREC_NAME,
+    DictComp: PREC_NAME,
+    Set: PREC_NAME,
+    SetComp: PREC_NAME,
+    Name: PREC_NAME,
+    Starred: PREC_NAME,
+    Attribute: PREC_ATTR,
+    Subscript: PREC_ATTR,
+    Call: PREC_ATTR,
     Await: PREC_AWAIT,
     Compare: PREC_COMPARE,
     IfExp: PREC_IFEXP,
@@ -140,35 +160,40 @@ ast_prec_map: dict[type[AST], int] = {
 }
 
 
-def get_precedence(node):
-    _type = type(node)
-    try:
-        return ast_prec_map[type(node)]
-    except KeyError:
-        pass
+def get_node_precedence(node: expr) -> prec_t:
+    node_prec = INF
+    node_prec = node_prec_map.get(type(node), INF)
+    if node_prec != INF:
+        return node_prec
 
-    if _type is BinOp:
-        return get_BinOp_precedence(node.op)
-    if _type is UnaryOp:
-        return get_UnaryOp_precedence(node.op)
-    if _type is BoolOp:
-        return get_BoolOp_precedence(node.op)
-    warnings.warn(f"Unknown node precedence of '{type(node).__name__}'", RuntimeWarning)
-    return INF
+    if isinstance(node, BinOp):
+        node_prec = binop_node_prec_map.get(type(node.op), INF)
+    elif isinstance(node, UnaryOp):
+        node_prec = unaryop_node_prec_map.get(type(node.op), INF)
+    elif isinstance(node, BoolOp):
+        node_prec = boolop_node_prec_map.get(type(node.op), INF)
+    if node_prec == INF:
+        warnings.warn(
+            f"Unknown node precedence of '{type(node).__name__}'", RuntimeWarning
+        )
+    return node_prec
 
 
-def unparse_generic(node: AST):
+unparse_gen_t: typing.TypeAlias = typing.Generator[tuple[prec_t, expr], str, str]
+
+
+def unparse_generic(node: expr) -> unparse_gen_t:
     warnings.warn(f"Unknown node type '{type(node).__name__}'", RuntimeWarning)
     return ""
     yield
 
 
-def unparse_Name(node: Name):
+def unparse_Name(node: Name) -> unparse_gen_t:
     return node.id
     yield
 
 
-def get_unescaped_str(string: str, qm: str):
+def get_unescaped_str(string: str, qm: str) -> str:
     out = []
     for i in string:
         if i == qm:
@@ -180,7 +205,7 @@ def get_unescaped_str(string: str, qm: str):
     return "".join(out)
 
 
-def unparse_Constant(node: Constant, qm):
+def unparse_Constant(node: Constant, qm: typing.Literal["'", '"']) -> unparse_gen_t:
     if node.value is ...:
         return "..."
     if isinstance(node.value, str):
@@ -190,7 +215,7 @@ def unparse_Constant(node: Constant, qm):
     yield
 
 
-def _unparse_JoinedStr(node: JoinedStr, qm):
+def _unparse_JoinedStr(node: JoinedStr, qm: typing.Literal["'", '"']) -> unparse_gen_t:
     contents = []
     for v in node.values:
         if isinstance(v, Constant):
@@ -203,14 +228,14 @@ def _unparse_JoinedStr(node: JoinedStr, qm):
     return "".join(contents)
 
 
-def unparse_JoinedStr(node: JoinedStr, qm):
+def unparse_JoinedStr(node: JoinedStr, qm: typing.Literal["'", '"']) -> unparse_gen_t:
     contents = yield from _unparse_JoinedStr(node, qm)
     if sys.version_info < (3, 12) and "\\" in contents:
-        raise RuntimeError("Back slash is included in a f-string")
+        raise SyntaxError("Back slash is included in a f-string")
     return f"f{qm}{contents}{qm}"
 
 
-def unparse_FormattedValue(node: FormattedValue, qm):
+def unparse_FormattedValue(node: FormattedValue, qm) -> unparse_gen_t:
     value = yield PREC_FORMAT_EXPR, node.value
     format_spec = ""
     if node.format_spec is not None:
@@ -220,27 +245,27 @@ def unparse_FormattedValue(node: FormattedValue, qm):
     return f"{{{value}{format_spec}}}"
 
 
-def unparse_Starred(node: Starred):
-    precedence = PERC_NAME
+def unparse_Starred(node: Starred) -> unparse_gen_t:
+    precedence = PREC_NAME
     value = yield precedence, node.value
     return f"*{value}"
     yield
 
 
-def unparse_Attribute(node: Attribute):
-    precedence = PERC_NAME
+def unparse_Attribute(node: Attribute) -> unparse_gen_t:
+    precedence = PREC_NAME
     value = yield precedence, node.value
     return f"{value}.{node.attr}"
 
 
-def unparse_Subscript(node: Subscript):
-    precedence = PERC_NAME
+def unparse_Subscript(node: Subscript) -> unparse_gen_t:
+    precedence = PREC_NAME
     value = yield precedence, node.value
     _slice = yield INF, node.slice
     return f"{value}[{_slice}]"
 
 
-def unparse_Slice(node: Slice):
+def unparse_Slice(node: Slice) -> unparse_gen_t:
     precedence = PREC_EXPR
     upper, lower, step = "", "", ""
     if node.upper is not None:
@@ -252,7 +277,7 @@ def unparse_Slice(node: Slice):
     return f"{lower}:{upper}:{step}"
 
 
-def unparse_keyword(node: keyword):
+def unparse_keyword(node: keyword) -> unparse_gen_t:
     precedence = PREC_EXPR
     value = yield precedence, node.value
     if node.arg is None:
@@ -260,28 +285,52 @@ def unparse_keyword(node: keyword):
     return f"{node.arg}={value}"
 
 
-def unparse_Call(node: Call):
-    func = yield PERC_ATTR, node.func
+def unparse_Call(node: Call) -> unparse_gen_t:
+    func = yield PREC_ATTR, node.func
     if len(node.args) == 1 and len(node.keywords) == 0:
         _arg = yield PREC_ONECALLARG, node.args[0]
         return f"{func}({_arg})"
     args_list = []
-    for _arg in itertools.chain(node.args, node.keywords):
-        args_list.append((yield PREC_CALLARGS, _arg))
+    for _arg_node in itertools.chain(node.args, node.keywords):
+        args_list.append((yield PREC_CALLARGS, _arg_node))
     _args = ",".join(args_list)
     return f"{func}({_args})"
 
 
-def unparse_BinOp(node: BinOp):
-    precedence = get_BinOp_precedence(node.op)
-    op = operator_map[type(node.op)]
-    left = yield precedence, node.left
-    right = yield precedence, node.right
+def unparse_BinOp(node: BinOp) -> unparse_gen_t:
+    op_type = type(node.op)
+    if op_type is Pow:
+        prec_l = PREC_POW_SLOT_LEFT
+        prec_r = PREC_POW_SLOT_RIGHT
+    elif op_type in [Mult, MatMult, Div, FloorDiv, Mod]:
+        prec_l = PREC_MULT_SLOT_LEFT
+        prec_r = PREC_MULT_SLOT_RIGHT
+    elif op_type in [Add, Sub]:
+        prec_l = PREC_ADD_SLOT_LEFT
+        prec_r = PREC_ADD_SLOT_RIGHT
+    elif op_type in [LShift, RShift]:
+        prec_l = PREC_SHIFT_SLOT_LEFT
+        prec_r = PREC_SHIFT_SLOT_RIGHT
+    elif op_type is BitAnd:
+        prec_l = PREC_BITAND_SLOT_LEFT
+        prec_r = PREC_BITAND_SLOT_RIGHT
+    elif op_type is BitXor:
+        prec_l = PREC_BITXOR_SLOT_LEFT
+        prec_r = PREC_BITXOR_SLOT_RIGHT
+    elif op_type is BitOr:
+        prec_l = PREC_BITOR_SLOT_LEFT
+        prec_r = PREC_BITOR_SLOT_RIGHT
+    else:
+        raise SyntaxError(f"Unknown BinOp type {op_type}")
+
+    op = operator_map[op_type]
+    left = yield prec_l, node.left
+    right = yield prec_r, node.right
     return f"{left}{op}{right}"
 
 
-def unparse_BoolOp(node: BoolOp):
-    precedence = get_BoolOp_precedence(node.op)
+def unparse_BoolOp(node: BoolOp) -> unparse_gen_t:
+    precedence = boolop_node_prec_map[type(node.op)]
     op = boolop_map[type(node.op)]
     values = []
     for v in node.values:
@@ -289,37 +338,40 @@ def unparse_BoolOp(node: BoolOp):
     return f" {op} ".join(values)
 
 
-def unparse_UnaryOp(node: UnaryOp):
-    precedence = get_UnaryOp_precedence(node.op)
+def unparse_UnaryOp(node: UnaryOp) -> unparse_gen_t:
+    precedence = unaryop_node_prec_map[type(node.op)]
     op = unaryop_map[type(node.op)]
     operand = yield precedence, node.operand
     return f"{op}{operand}"
 
 
-def unparse_List(node: List):
+def unparse_List(node: List) -> unparse_gen_t:
     elts = []
     for item in node.elts:
         elts.append((yield PREC_CALLARGS, item))
     return f"[{','.join(elts)}]"
 
 
-def unparse_Set(node: Set):
+def unparse_Set(node: Set) -> unparse_gen_t:
     elts = []
     for item in node.elts:
         elts.append((yield PREC_CALLARGS, item))
     return f"{{{','.join(elts)}}}"
 
 
-def unparse_Dict(node: Dict):
+def unparse_Dict(node: Dict) -> unparse_gen_t:
     item = []
     for k, v in zip(node.keys, node.values):
-        key = yield PREC_EXPR, k
         value = yield PREC_EXPR, v
-        item.append(f"{key}:{value}")
+        if k is not None:
+            key = yield PREC_EXPR, k
+            item.append(f"{key}:{value}")
+        else:
+            item.append(f"**{value}")
     return f"{{{','.join(item)}}}"
 
 
-def unparse_Tuple(node: Tuple):
+def unparse_Tuple(node: Tuple) -> unparse_gen_t:
     elts = []
     for item in node.elts:
         elts.append((yield PREC_CALLARGS, item))
@@ -328,7 +380,7 @@ def unparse_Tuple(node: Tuple):
     return f"({','.join(elts)})"
 
 
-def unparse_Compare(node: Compare):
+def unparse_Compare(node: Compare) -> unparse_gen_t:
     ops = (cmpop_map[type(op)] for op in node.ops)
     left = yield PREC_COMP_ARGS, node.left
     comparators = []
@@ -338,13 +390,13 @@ def unparse_Compare(node: Compare):
     return f"{left}{right}"
 
 
-def unparse_NamedExpr(node: NamedExpr):
+def unparse_NamedExpr(node: NamedExpr) -> unparse_gen_t:
     precedence = PREC_NAMEDEXPR
     value = yield precedence, node.value
     return f"{node.target.id}:={value}"
 
 
-def unparse_Lambda(node: Lambda):
+def unparse_Lambda(node: Lambda) -> unparse_gen_t:
     body = yield PREC_LAMBDA, node.body
     arg_def_list = []
     default: expr | None
@@ -390,7 +442,7 @@ def unparse_Lambda(node: Lambda):
     return f"lambda{arg_def}:{body}"
 
 
-def _unparse_comprehensions(generators):
+def _unparse_comprehensions(generators) -> unparse_gen_t:
     generator_list = []
     for gen in generators:
         _async = "" if not gen.is_async else "async "
@@ -406,51 +458,58 @@ def _unparse_comprehensions(generators):
     return " ".join(generator_list)
 
 
-def unparse_ListComp(node: ListComp):
+def unparse_ListComp(node: ListComp) -> unparse_gen_t:
     elt = yield PREC_CALLARGS, node.elt
     generators = yield from _unparse_comprehensions(node.generators)
     return f"[{elt} {generators}]"
 
 
-def unparse_GeneratorExp(node: GeneratorExp):
+def unparse_GeneratorExp(node: GeneratorExp) -> unparse_gen_t:
     elt = yield PREC_CALLARGS, node.elt
     generators = yield from _unparse_comprehensions(node.generators)
     return f"{elt} {generators}"
 
 
-def unparse_SetComp(node: SetComp):
+def unparse_SetComp(node: SetComp) -> unparse_gen_t:
     elt = yield PREC_CALLARGS, node.elt
     generators = yield from _unparse_comprehensions(node.generators)
     return f"{{{elt} {generators}}}"
 
 
-def unparse_DictComp(node: DictComp):
+def unparse_DictComp(node: DictComp) -> unparse_gen_t:
     key = yield PREC_EXPR, node.key
     value = yield PREC_EXPR, node.value
     generators = yield from _unparse_comprehensions(node.generators)
     return f"{{{key}:{value} {generators}}}"
 
 
-def unparse_IfExp(node: IfExp):
-    body = yield PREC_IFEXP_LEFT, node.body
-    test = yield PREC_IFEXP_LEFT, node.test
-    orelse = yield PREC_EXPR, node.orelse
+def unparse_IfExp(node: IfExp) -> unparse_gen_t:
+    body = yield PREC_IFEXP_SLOT_LEFT, node.body
+    test = yield PREC_EXPR, node.test
+    orelse = yield PREC_IFEXP_SLOT_RIGHT, node.orelse
     return f"{body} if {test} else {orelse}"
 
 
-def unparse_Yield(node: Yield):
+def unparse_Yield(node: Yield) -> unparse_gen_t:
     if node.value is None:
         return "yield"
     value = yield PREC_EXPR, node.value
     return f"yield {value}"
 
 
-def unparse_YieldFrom(node: YieldFrom):
+def unparse_YieldFrom(node: YieldFrom) -> unparse_gen_t:
     value = yield PREC_EXPR, node.value
     return f"yield from {value}"
 
 
+def unparse_Await(node: Await) -> unparse_gen_t:
+    value = yield PREC_AWAIT_SLOT, node.value
+    return f"await {value}"
+
+
 class _Node:
+    gen: unparse_gen_t
+
     gen_map: dict[type[AST], typing.Callable] = {
         Name: unparse_Name,
         Call: unparse_Call,
@@ -479,11 +538,12 @@ class _Node:
         IfExp: unparse_IfExp,
         Yield: unparse_Yield,
         YieldFrom: unparse_YieldFrom,
+        Await: unparse_Await,
     }
 
-    def __init__(self, outer_precedence, node: AST, outer_str_qm: str):
+    def __init__(self, outer_precedence: prec_t, node: expr, outer_str_qm: str):
         self.outer_precedence = outer_precedence
-        self.precedence = get_precedence(node)
+        self.node_precedence = get_node_precedence(node)
         gen_func = self.gen_map.get(type(node), unparse_generic)
 
         if gen_func in [unparse_Constant, unparse_JoinedStr]:
@@ -500,21 +560,52 @@ class _Node:
             self.gen = gen_func(node)
 
 
+"""
+Theory
+
+Looking at expression `a*(b*c)`
+
+The `b*c` is inside `a*( )`
+`b*c` has a precedence, called "node precedence"
+The slot in `a*( )` has a "slot precedence"
+
+If the node precedence value > the slot precedence value
+then the inner node should be wrapped with `( )`
+Otherwise the `( )` is not needed.
+
+Notice that for some nodes like Mul or Add or IfExpr,
+they may have multiple slots with different slot precedence value.
+"""
+
+
 def expr_unparse(node: expr) -> str:
     stack: list[_Node] = []
     stack.append(_Node(PREC_EXPR, node, '"'))
     converted: str | None = None
-    unconverted: tuple[int, AST] | None = None
     while stack:
         try:
-            unconverted = stack[-1].gen.send(converted)
-            stack.append(_Node(*unconverted, stack[-1].qm))  # type: ignore
-            converted = None
-        except StopIteration as err:
-            converted = err.value
+            # sending None to a just-started generator is equivalent to next(gen)
+            slot_prec, unconverted_node = stack[-1].gen.send(converted)  # type: ignore
+        except StopIteration as result:
+            converted = result.value
             inner_node = stack.pop()
-            if inner_node.precedence > inner_node.outer_precedence:
+            if inner_node.node_precedence > inner_node.outer_precedence:
                 converted = f"({converted})"
+        else:
+            stack.append(_Node(slot_prec, unconverted_node, stack[-1].qm))
+            converted = None
 
     assert converted is not None
     return converted
+
+
+"""
+if __name__=="__main__":
+    original = "(a,b).b"
+    node = parse(original).body[0].value
+    print(dump(node,indent=4))
+    code = expr_unparse(node)
+    print(code)
+    code = unparse(node)
+    print(code)
+"""
