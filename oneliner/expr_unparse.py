@@ -151,7 +151,6 @@ node_prec_map: dict[type[AST], prec_t] = {
     Compare: PREC_COMPARE,
     IfExp: PREC_IFEXP,
     Lambda: PREC_LAMBDA,
-    keyword: PREC_EXPR,
     Slice: PREC_EXPR,
     NamedExpr: PREC_NAMEDEXPR,
     GeneratorExp: PREC_GENEXPR,
@@ -172,7 +171,7 @@ def get_node_precedence(node: expr) -> prec_t:
         node_prec = unaryop_node_prec_map.get(type(node.op), INF)
     elif isinstance(node, BoolOp):
         node_prec = boolop_node_prec_map.get(type(node.op), INF)
-    if node_prec == INF:
+    if node_prec == INF:  # pragma: no cover
         warnings.warn(
             f"Unknown node precedence of '{type(node).__name__}'", RuntimeWarning
         )
@@ -182,7 +181,7 @@ def get_node_precedence(node: expr) -> prec_t:
 unparse_gen_t: typing.TypeAlias = typing.Generator[tuple[prec_t, expr], str, str]
 
 
-def unparse_generic(node: expr) -> unparse_gen_t:
+def unparse_generic(node: expr) -> unparse_gen_t:  # pragma: no cover
     warnings.warn(f"Unknown node type '{type(node).__name__}'", RuntimeWarning)
     return ""
     yield
@@ -277,22 +276,20 @@ def unparse_Slice(node: Slice) -> unparse_gen_t:
     return f"{lower}:{upper}:{step}"
 
 
-def unparse_keyword(node: keyword) -> unparse_gen_t:
-    precedence = PREC_EXPR
-    value = yield precedence, node.value
-    if node.arg is None:
-        return f"**{value}"
-    return f"{node.arg}={value}"
-
-
 def unparse_Call(node: Call) -> unparse_gen_t:
     func = yield PREC_ATTR, node.func
     if len(node.args) == 1 and len(node.keywords) == 0:
         _arg = yield PREC_ONECALLARG, node.args[0]
         return f"{func}({_arg})"
     args_list = []
-    for _arg_node in itertools.chain(node.args, node.keywords):
-        args_list.append((yield PREC_CALLARGS, _arg_node))
+    for arg_node in node.args:
+        args_list.append((yield PREC_CALLARGS, arg_node))
+    for kw_node in node.keywords:
+        value = (yield PREC_CALLARGS, kw_node.value)
+        if kw_node.arg is None:
+            args_list.append(f"**{value}")
+        else:
+            args_list.append(f"{kw_node.arg}={value}")
     _args = ",".join(args_list)
     return f"{func}({_args})"
 
@@ -320,7 +317,7 @@ def unparse_BinOp(node: BinOp) -> unparse_gen_t:
     elif op_type is BitOr:
         prec_l = PREC_BITOR_SLOT_LEFT
         prec_r = PREC_BITOR_SLOT_RIGHT
-    else:
+    else:  # pragma: no cover
         raise SyntaxError(f"Unknown BinOp type {op_type}")
 
     op = operator_map[op_type]
@@ -517,7 +514,6 @@ class _Node:
         JoinedStr: unparse_JoinedStr,
         FormattedValue: unparse_FormattedValue,
         Starred: unparse_Starred,
-        keyword: unparse_keyword,
         BinOp: unparse_BinOp,
         BoolOp: unparse_BoolOp,
         UnaryOp: unparse_UnaryOp,
