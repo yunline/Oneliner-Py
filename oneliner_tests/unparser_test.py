@@ -79,6 +79,7 @@ class TestSingleExprUnparse(_TestExprUnparse):
             self.assertUnparseConsist('"ef\'\\"gh"')
             self.assertUnparseConsist('"ji\\\'kl"')
             self.assertUnparseConsist("'mn\\\"op'")
+            self.assertUnparseConsist('b"hello bytes"')
         with self.subTest("JoinedStr"):
             self.assertUnparseConsist("f'hello{world:fmt}hello{0}hello{awa:{q}}}}'")
             if sys.version_info >= (3, 12):
@@ -123,6 +124,7 @@ class TestSingleExprUnparse(_TestExprUnparse):
 
     def test_SetComp(self):
         self.assertUnparseConsist("{a for b in c}")
+        self.assertUnparseConsist("{a for b, c, d in e}")
         self.assertUnparseConsist("{a for b in c if d}")
         self.assertUnparseConsist("{a for b in c if d for e in f}")
         self.assertUnparseConsist("{a async for b in c if d for e in f}")
@@ -161,6 +163,7 @@ class TestSingleExprUnparse(_TestExprUnparse):
         self.assertUnparseConsist("~a")
         self.assertUnparseConsist("-a")
         self.assertUnparseConsist("+a")
+        self.assertUnparseConsist("not a")
 
     def test_BinOp_Pow(self):
         self.assertUnparseConsist("a**b")
@@ -219,7 +222,7 @@ class TestSingleExprUnparse(_TestExprUnparse):
 
 class TestComplexExprUnparse(_TestExprUnparse):
     slots = {
-        "List": ["[a,{0},a]"],
+        "List": ["[a,{0},a]", "[a, *{0}]"],
         "Tuple": ["(a,{0},a)"],
         "Set": ["{{a,{0},a}}"],
         "Dict": ["{{a:b,{0}:e,c:d}}", "{{a:b,e:{0},c:d}}", "{{a:b,**{0}}}"],
@@ -245,7 +248,7 @@ class TestComplexExprUnparse(_TestExprUnparse):
         "USub": ["-{0}"],
         "Invert": ["~{0}"],
         "Not": ["not {0}"],
-        "Compare": ["a>{0}", "{0}>a"],
+        "Compare": ["a>{0}", "{0}>a", "{0} is a", "a is {0}", "{0} in a", "a in {0}"],
         "IfExp": ["{0} if b else c", "a if {0} else c", "a if b else {0}"],
         "Lambda": ["lambda:{0}", "lambda kw={0}:a"],
         "Call": ["{0}()", "a({0})", "a(kw={0})", "a(*{0})", "a(**{0})", "a(a,b,{0},c)"],
@@ -260,10 +263,11 @@ class TestComplexExprUnparse(_TestExprUnparse):
         "Const": ["114514", "0.5", "1j", "'x'"],
         "Name": ["a"],
         "List": ["[a]"],
-        "Tuple": ["(a,)"],
+        "Tuple": ["()", "(a,)", "(a,b,c)"],
         "Set": ["{a}"],
         "Dict": ["{a:b}"],
         "Attr": ["a.b"],
+        "Subscript": ["a[b]"],
         "Pow": ["a**b"],
         "Mult": ["a*b"],
         "MatMult": ["a@b"],
@@ -283,7 +287,7 @@ class TestComplexExprUnparse(_TestExprUnparse):
         "USub": ["-a"],
         "Invert": ["~a"],
         "Not": ["not a"],
-        "Compare": ["a>b"],
+        "Compare": ["a>b", "a is b", "a in b"],
         "IfExp": ["a if b else c"],
         "Lambda": ["lambda:a"],
         "Call": ["print()"],
@@ -295,6 +299,8 @@ class TestComplexExprUnparse(_TestExprUnparse):
         "SetComp": ["{a for b in c}"],
         "GeneratorExp": ["(a for b in c)"],
         "DictComp": ["{a:b for c in d}"],
+        # Slice/Starred are ignored
+        # because they can only be inside of Subscript/Call
     }
 
     # generate test cases
