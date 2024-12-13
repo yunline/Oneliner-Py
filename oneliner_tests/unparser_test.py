@@ -31,28 +31,35 @@ def ast_equivalent(a: ast.AST, b: ast.AST):
 
 class _TestExprUnparse(unittest.TestCase):
     def assertUnparseConsist(self, code, msg=None):
-        module = ast.parse(code, filename="<original>")
-        assert isinstance(module.body[0], ast.Expr)
-        original_tree = module.body[0].value
-        testing_result = expr_unparse(original_tree)
-        standard_result = ast.unparse(original_tree)
+        original_tree = ast.parse(code, filename="<original>")
+        assert isinstance(original_tree.body[0], ast.Expr)
+        original_expr = original_tree.body[0].value
+        testing_result = expr_unparse(original_expr)
+        standard_result = ast.unparse(original_expr)
         testing_tree = ast.parse(testing_result, filename="<expr_unparse>")
         standard_tree = ast.parse(standard_result, filename="<ast.unparse>")
 
-        if not ast_equivalent(testing_tree, standard_tree):
-            print(f"\nCase {repr(code)} not equivalent in AST, checking byte code")
-            # if not equivalent in ast, fallback to check if equivalent in byte code
-            testing_code_obj = compile(testing_result, "<expr_unparse>", "exec")
-            standard_code_obj = compile(standard_result, "<ast.unparse>", "exec")
-            if testing_code_obj.co_code != standard_code_obj.co_code:
-                testing_dump = ast.dump(testing_tree, indent=4)
-                standard_dump = ast.dump(standard_tree, indent=4)
-                msg = self._formatMessage(
-                    msg,
-                    f"\nast.unparse:\n{standard_result}\n{standard_dump}"
-                    f"\nexpr_unparse:\n{testing_result}\n{testing_dump}",
-                )
-                raise self.failureException(msg)
+        if not ast_equivalent(testing_tree, original_tree):
+            original_dump = ast.dump(original_tree, indent=4)
+            testing_dump = ast.dump(testing_tree, indent=4)
+            standard_dump = ast.dump(standard_tree, indent=4)
+            msg = self._formatMessage(
+                msg,
+                f"\nexpr_unparse result is different from original\n"
+                f"\noriginal:\n{code}\n{original_dump}"
+                f"\nast.unparse:\n{standard_result}\n{standard_dump}"
+                f"\nexpr_unparse:\n{testing_result}\n{testing_dump}",
+            )
+            raise self.failureException(msg)
+        if not ast_equivalent(standard_tree, original_tree):
+            # test the standard lib
+            # hopefully we will find cpython bug one day xD
+            print(
+                f"\nast.unparse result is different from original"
+                f"\noriginal: {code}"
+                f"\nast.unparse: {standard_result}\n"
+                f"\nexpr_unparse: {testing_result}\n"
+            )
 
 
 class TestSingleExprUnparse(_TestExprUnparse):

@@ -84,11 +84,11 @@ PREC_COMPARE_SLOT = next(enum)
 PREC_COMPARE = next(enum)
 PREC_NOT = next(enum)
 
-PREC_AND = next(enum)
 PREC_AND_SLOT = next(enum)
+PREC_AND = next(enum)
 
-PREC_OR = next(enum)
 PREC_OR_SLOT = next(enum)
+PREC_OR = next(enum)
 
 PREC_COMPREHENSION_SLOT_ITER = next(enum)
 
