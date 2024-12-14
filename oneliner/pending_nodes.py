@@ -114,7 +114,6 @@ class PendingModule(PendingNode[Module]):
 
 
 class PendingExpr(PendingNode[Expr]):
-
     def get_result(self) -> list[expr]:
         return [expr_transf(self.nsp, self.node.value)]
 
@@ -136,8 +135,8 @@ class _PendingCompoundStmt(PendingNode[T]):
         self,
         converted_branch: list[expr],
         branch: list[stmt],
-        get_interrupt_cnt,
-        get_flow_control_expr,
+        get_interrupt_cnt: typing.Callable[[], int],
+        get_flow_control_expr: typing.Callable[[], expr],
     ) -> typing.Generator[AST, list[expr], None]:
         initial_interrupt_cnt = get_interrupt_cnt()
 
@@ -269,7 +268,6 @@ class _PendingLoop(_PendingCompoundStmt[L]):
 
 
 class PendingWhile(_PendingLoop[While]):
-
     def __init__(self, node: While, nsp: Namespace, nsp_global: NamespaceGlobal):
         super().__init__(node, nsp, nsp_global)
 
@@ -392,7 +390,6 @@ class PendingWhile(_PendingLoop[While]):
 
 
 class PendingFor(_PendingLoop[For]):
-
     def __init__(self, node: For, nsp: Namespace, nsp_global: NamespaceGlobal):
         super().__init__(node, nsp, nsp_global)
 
