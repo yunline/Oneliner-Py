@@ -52,22 +52,22 @@ def convert(
                 + f"Unable to convert node '{type(node).__name__}'"
             ) from err
 
-    unconverted: None | ast.AST = ast_root
+    tobe_converted: None | ast.AST = ast_root
     result_nodes = None
     while True:
-        assert unconverted is not None  # to make type checker happy
-        pending_node = get_pending_node(unconverted)
+        assert tobe_converted is not None  # to make type checker happy
+        pending_node = get_pending_node(tobe_converted)
         pending_node_stack.append(pending_node)
         if pending_node.has_internal_namespace:
             nsp_stack.append(pending_node.get_internal_namespace())
-        unconverted = None
-        while unconverted is None:
+        tobe_converted = None
+        while tobe_converted is None:
             try:
                 # try to get unconverted node
                 if result_nodes is None:
-                    unconverted = next(pending_top().iter_node)
+                    tobe_converted = next(pending_top().iter_node)
                 else:
-                    unconverted = pending_top().iter_node.send(result_nodes)
+                    tobe_converted = pending_top().iter_node.send(result_nodes)
                     result_nodes = None
             except StopIteration:
                 # no more unconverted node, pending node is complete
