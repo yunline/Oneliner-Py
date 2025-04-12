@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "Oneliner-Py"
-version = "1.2.0"
+version = "1.2.1"
 authors = [{ name = "Yunline" }]
 description = "Convert python scripts into oneliner expression."
 readme = "README.md"
