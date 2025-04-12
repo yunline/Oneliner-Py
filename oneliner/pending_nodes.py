@@ -617,14 +617,14 @@ class PendingAssign(PendingNode[Assign | AnnAssign]):
         tmp_value_name = Name(id=ol_name(OL_ASSIGN_TMP))
         return_list.append(
             NamedExpr(
-                target=tmp_value_name, 
+                target=tmp_value_name,
                 # wrap the assign value with `tuple()`
                 # fixing issue #13
                 value=Call(
                     func=Name(id="tuple", ctx=Load()),
                     args=[value],
                     keywords=[],
-                )
+                ),
             )
         )
 
