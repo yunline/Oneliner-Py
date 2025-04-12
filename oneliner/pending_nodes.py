@@ -607,10 +607,27 @@ class PendingAssign(PendingNode[Assign | AnnAssign]):
         """
         Recursion warning
         """
-        return_list = []
+        return_list: list[expr] = []
         have_starred = False
         value_subscript: expr
         slice_upper: Constant | None
+
+        # save the assign value to a tmp var
+        # to make sure the value expr only runs once.
+        tmp_value_name = Name(id=ol_name(OL_ASSIGN_TMP))
+        return_list.append(
+            NamedExpr(
+                target=tmp_value_name, 
+                # wrap the assign value with `tuple()`
+                # fixing issue #13
+                value=Call(
+                    func=Name(id="tuple", ctx=Load()),
+                    args=[value],
+                    keywords=[],
+                )
+            )
+        )
+
         for index, sub_target in enumerate(target.elts):
             if isinstance(sub_target, Starred):
                 if have_starred:
@@ -630,7 +647,7 @@ class PendingAssign(PendingNode[Assign | AnnAssign]):
                     func=Name(id="list", ctx=Load()),
                     args=[
                         Subscript(
-                            value=value,
+                            value=tmp_value_name,
                             slice=Slice(
                                 lower=Constant(value=index),
                                 upper=slice_upper,
@@ -647,7 +664,7 @@ class PendingAssign(PendingNode[Assign | AnnAssign]):
                     _slice = Constant(value=index - len(target.elts))
 
                 value_subscript = Subscript(
-                    value=value,
+                    value=tmp_value_name,
                     slice=_slice,
                     ctx=Load(),
                 )
@@ -668,23 +685,8 @@ class PendingAssign(PendingNode[Assign | AnnAssign]):
         else:
             assign_targets = self.node.targets
 
-        if len(assign_targets) == 1 and not isinstance(
-            assign_targets[0], (Tuple, List)
-        ):
-            # if there is only one target (not tuple or list)
-            # wo don't need tmp var
-            return_value = self.assign_auto(assign_targets[0], assign_value)
-            assert len(return_value) == 1
-            return return_value
-
-        # save the assign value to a tmp var
-        # to make sure the value expr only runs once.
-        tmp_value_name = Name(id=ol_name(OL_ASSIGN_TMP))
-        return_list.append(
-            NamedExpr(target=tmp_value_name, value=assign_value),
-        )
         for target in assign_targets:
-            return_list.extend(self.assign_auto(target, tmp_value_name))
+            return_list.extend(self.assign_auto(target, assign_value))
 
         return return_list
 
