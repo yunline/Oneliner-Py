@@ -1,7 +1,3 @@
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "Oneliner-Py"
 dynamic = ["version"]
@@ -21,6 +17,10 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://github.com/yunline/Oneliner-Py"
 "Bug Tracker" = "https://github.com/yunline/Oneliner-Py/issues"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["oneliner", "oneliner.presets"]
