@@ -1,6 +1,7 @@
 from oneliner.config import Configs
 from oneliner.convert import convert
 from oneliner.expr_unparse import expr_unparse
+from oneliner.version import __version__
 
 __all__ = ["convert_code_string"]
 

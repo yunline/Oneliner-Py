@@ -18,13 +18,11 @@ parser.add_argument(
     help="The filename of the python script to be converted",
 )
 
-ver = oneliner.version.oneliner_version
-dev = "-dev" if oneliner.version.dev else ""
 parser.add_argument(
     "-v",
     "--version",
     action="version",
-    version=f"Oneliner-Py-{ver[0]}.{ver[1]}.{ver[2]}{dev}",
+    version=f"Oneliner-Py {oneliner.__version__}",
 )
 
 parser.add_argument(
