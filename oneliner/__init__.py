@@ -1,7 +1,10 @@
 from oneliner.config import Configs
 from oneliner.convert import convert
 from oneliner.expr_unparse import expr_unparse
-from oneliner.version import __version__
+
+# We don't use __version__ directly, and we won't add it into __all__
+# So we skip F401
+from oneliner.version import __version__  # noqa: F401
 
 __all__ = ["convert_code_string"]
 
