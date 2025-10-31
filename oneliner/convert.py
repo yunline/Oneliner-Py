@@ -4,42 +4,37 @@ import symtable
 import oneliner.utils as utils
 from oneliner.config import Configs
 from oneliner.namespaces import Namespace, generate_nsp
-from oneliner.pending_nodes import *
+import oneliner.pending_nodes as pending_nodes
 
-ast2pending: dict[type[ast.AST], type[PendingNode]] = {
-    ast.Module: PendingModule,
-    ast.Expr: PendingExpr,
-    ast.If: PendingIf,
-    ast.While: PendingWhile,
-    ast.For: PendingFor,
-    ast.Break: PendingBreak,
-    ast.Continue: PeindingContinue,
-    ast.Pass: PendingPass,
-    ast.Assign: PendingAssign,
-    ast.AnnAssign: PendingAssign,
-    ast.AugAssign: PendingAugAssign,
-    ast.FunctionDef: PendingFunctionDef,
-    ast.Return: PendingReturn,
-    ast.Global: PendingGlobal,
-    ast.Nonlocal: PendingNonlocal,
-    ast.ClassDef: PendingClassDef,
-    ast.Import: PendingImport,
-    ast.ImportFrom: PendingImportFrom,
-}
+class AstToPending:
+    _default = object()
+    def get(self,item,default=_default) -> pending_nodes.PendingNode:
+        if isinstance(item,type):
+            return self.get(item.__name__,default)
+        if item in pending_nodes.__all__:
+            return getattr(pending_nodes,item)
+        if "Pending" + item in pending_nodes.__all__:
+            return getattr(pending_nodes,"Pending" + item)
+        if default is not self._default:
+            return default
+        raise KeyError(repr(item))
+    def __getitem__(self,key) -> pending_nodes.PendingNode:
+        return self.get(key)
 
+ast2pending : AstToPending = AstToPending()
 
 def convert(
     ast_root: ast.Module, symtable_root: symtable.SymbolTable, configs: Configs
 ) -> ast.expr:
-    pending_node_stack: list[PendingNode] = []
+    pending_node_stack: list[pending_nodes.PendingNode] = []
     nsp_global = generate_nsp(symtable_root, configs)
     nsp_stack: list[Namespace] = [nsp_global]
 
-    def pending_top() -> PendingNode:
+    def pending_top() -> pending_nodes.PendingNode:
         """Get the stack top of self.pending_node_stack"""
         return pending_node_stack[-1]
 
-    def get_pending_node(node: ast.AST) -> PendingNode:
+    def get_pending_node(node: ast.AST) -> pending_nodes.PendingNode:
         try:
             return ast2pending[type(node)](
                 node,

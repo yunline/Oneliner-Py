@@ -32,18 +32,32 @@ def list_wrapper(nodes: list[expr]) -> expr:
 
 
 def chain_call_wrapper(nodes: list[expr]) -> expr:
-    runner = NamedExpr(
-        target=Name(id=OL_RUN, ctx=Store()),
-        value=Lambda(
-            args=arguments(
-                posonlyargs=[],
-                args=[arg(arg="_")],
-                kwonlyargs=[],
-                kw_defaults=[],
-                defaults=[],
-            ),
-            body=Name(id=OL_RUN, ctx=Load()),
+    runner = Lambda(
+        args = arguments(
+            posonlyargs = [],
+            args = [],
+            kwonlyargs = [],
+            kw_defaults = [],
+            defaults = [],
         ),
+        body = NamedExpr(
+            target = Name(id = OL_RUN, ctx=Store()),
+            value = Lambda(
+                args = arguments(
+                    posonlyargs = [],
+                    args=[arg(arg = "_")],
+                    kwonlyargs = [],
+                    kw_defaults = [],
+                    defaults = [],
+                ),
+                body = Name(id = OL_RUN, ctx = Load()),
+            ),
+        )
+    )
+    runner = Call(
+        func=runner,
+        args=[],
+        keywords=[],
     )
     call = Call(
         func=runner,
@@ -66,7 +80,7 @@ def get_expr_wrapper(configs: Configs):
     def wraper(nodes: list[expr]) -> expr:
         """Wrap a list of expr nodes as one expr"""
         if len(nodes) == 0:
-            return Constant(value=...)
+            return Constant(value=None)
         if len(nodes) == 1:
             return nodes[0]
 

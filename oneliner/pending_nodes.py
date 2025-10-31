@@ -18,6 +18,8 @@ __all__ = [
     "PendingIf",
     "PendingWhile",
     "PendingFor",
+    "PendingTry",
+    "PendingExceptHandler",
     "PendingBreak",
     "PeindingContinue",
     "PendingPass",
@@ -126,6 +128,8 @@ class _PendingCompoundStmt(PendingNode[T]):
         PendingFor
         PendingFunctionDef
         PendingClassDef
+        PendingTry
+        PendingExceptHandler
 
     They have some common behaviors
     So _PendingCompoundStmt is created
@@ -219,6 +223,214 @@ class PendingIf(_PendingCompoundStmt[If]):
             get_flow_control_expr,
         )
 
+class PendingTry(_PendingCompoundStmt[Try]):
+    converted_body: list[expr]
+    converted_handlers: list[expr]
+    converted_finalbody: list[expr]
+    converted_orelse: list[expr]
+
+    def __init__(self, node: If, nsp: Namespace, nsp_global: NamespaceGlobal):
+        super().__init__(node, nsp, nsp_global)
+
+        self.converted_body = []
+        self.converted_handlers = []
+        self.converted_finalbody = []
+        self.converted_orelse = []
+        self.func = parse(
+            'type(lambda:0)('
+                'next(c for c in '
+                    'compile('
+                    "'"
+                    'def f(a,b,c,d):'                                 '\\n'
+                        ' try:a()'                                   '\\n'
+                            ' except BaseException as err:b(err)'   '\\n'
+                            ' else:c()'                              '\\n'
+                            ' finally:d()'
+                    "'"
+                    ',__file__,\'exec\').co_consts'     ' '
+                'if isinstance(c,type(compile("","","exec"))) and c.co_name == \'f\'),'
+                'globals()'
+            ')'
+        ).body[0].value
+
+    def get_result(self) -> list[expr]:
+        body = Lambda(
+            args = [],
+            body = self.nsp_global.expr_wraper(self.converted_body)
+        )
+        handlers = self.get_handlers()
+        finalbody = Lambda(
+            args = [],
+            body = self.nsp_global.expr_wraper(self.converted_finalbody)
+        )
+        finalbody = Lambda(
+            args = [],
+            body = self.nsp_global.expr_wraper(self.converted_finalbody)
+        )
+        orelse = Lambda(
+            args = [],
+            body = self.nsp_global.expr_wraper(self.converted_orelse)
+        )
+        result = Call(
+            func = self.func,
+            args = [
+                body,
+                handlers,
+                finalbody,
+                orelse
+            ],
+            keywords = []
+        )
+        return [result]
+    def get_handlers(self) -> expr:
+        handlers = self.nsp_global.expr_wraper(self.converted_handlers)
+        if isinstance(handlers,Call):
+            func = handlers
+            proc = []
+            while isinstance(func,Call) and isinstance(func.func,Call):
+                proc.extend(func.args)
+                func = func.func
+            proc.reverse()
+            handlers = Call(
+                func = Lambda(
+                    args = [Name('process')],
+                    body = Lambda(
+                        args = [Name('error')],
+                        body = Call(
+                            func = Name('next'),
+                            args=[
+                                GeneratorExp(
+                                    elt = Constant(None),
+                                    generators = [
+                                        comprehension(
+                                            target = Name('func'),
+                                            iter = Name('process'),
+                                            ifs = [Call(
+                                                func = Name('func'),
+                                                args = [Name('error')],
+                                                keywords = []
+                                            )],
+                                            is_async = 0
+                                        )
+                                    ]
+                                )
+                            ],
+                            keywords=[]
+                        )
+                    )
+                ),
+                args=[List(elts = proc)],
+                keywords=[]
+            )
+        return handlers
+    def _iter_nodes(self) -> typing.Generator[AST, list[expr], None]:
+        #修改自PendingIf 所以有可能有部分不符合try语句的结构
+        if self.nsp.loop_stack:
+            get_interrupt_cnt = lambda: self.nsp.loop_stack[-1].interrupt_cnt
+            get_flow_control_expr = self.nsp.loop_stack[-1].get_flow_ctrl_expr
+        elif isinstance(self.nsp, NamespaceFunction):
+            self.nsp: NamespaceFunction
+            get_interrupt_cnt = lambda: self.nsp.return_cnt
+            get_flow_control_expr = self.nsp.get_flow_ctrl_expr
+        else:
+            get_interrupt_cnt = lambda: 0
+            get_flow_control_expr = utils.never_call
+
+        yield from self._iter_branch(
+            self.converted_body,
+            self.node.body,
+            get_interrupt_cnt,
+            get_flow_control_expr,
+        )
+        yield from self._iter_branch(
+            self.converted_handlers,
+            self.node.handlers,
+            get_interrupt_cnt,
+            get_flow_control_expr,
+        )
+        yield from self._iter_branch(
+            self.converted_finalbody,
+            self.node.finalbody,
+            get_interrupt_cnt,
+            get_flow_control_expr,
+        )
+        yield from self._iter_branch(
+            self.converted_orelse,
+            self.node.orelse,
+            get_interrupt_cnt,
+            get_flow_control_expr,
+        )
+
+class PendingExceptHandler(_PendingCompoundStmt[Try]):
+    converted_body: list[expr]
+
+    def __init__(self, node: If, nsp: Namespace, nsp_global: NamespaceGlobal):
+        super().__init__(node, nsp, nsp_global)
+
+        self.converted_body = []
+
+    def get_result(self) -> list[expr]:
+        body = self.nsp_global.expr_wraper(self.converted_body)
+        name = self.node.name
+        err_type = self.node.type
+        result = Subscript(
+            value = Tuple(
+                elts = [
+                    NamedExpr(
+                        target = Name(OL_EXCEPT_CALLBACK),
+                        value = Lambda(
+                            args = [Name(name)] if name else [],
+                            body = body
+                        )
+                    ),
+                    Lambda(
+                        args = [Name("error")],
+                        body = BoolOp(
+                            values = [_ for _ in [
+                                err_type and Call(
+                                    func = Name("isinstance"),
+                                    args = [Name("error"),err_type],
+                                    keywords = []
+                                ),
+                                Tuple(
+                                    elts = [Call(
+                                        func = Name(OL_EXCEPT_CALLBACK),
+                                        args = [Name("error")],
+                                        keywords = []
+                                    )]
+                                )
+                            ] if _],
+                            op = And()
+                        )
+                    )
+                ]
+            ),
+            slice = Index(
+                value = Constant(1)
+            )
+        )
+        result = Call(func = Lambda(body = result, args = []), args = [], keywords = [])
+        return [result]
+
+    def _iter_nodes(self) -> typing.Generator[AST, list[expr], None]:
+        #修改自PendingIf 所以有可能有部分不符合try语句的结构
+        if self.nsp.loop_stack:
+            get_interrupt_cnt = lambda: self.nsp.loop_stack[-1].interrupt_cnt
+            get_flow_control_expr = self.nsp.loop_stack[-1].get_flow_ctrl_expr
+        elif isinstance(self.nsp, NamespaceFunction):
+            self.nsp: NamespaceFunction
+            get_interrupt_cnt = lambda: self.nsp.return_cnt
+            get_flow_control_expr = self.nsp.get_flow_ctrl_expr
+        else:
+            get_interrupt_cnt = lambda: 0
+            get_flow_control_expr = utils.never_call
+
+        yield from self._iter_branch(
+            self.converted_body,
+            self.node.body,
+            get_interrupt_cnt,
+            get_flow_control_expr,
+        )
 
 class _PendingLoop(_PendingCompoundStmt[L]):
     node: L  # Original node

@@ -19,6 +19,7 @@ OL_CLASS_DICT: _ol_reserved_name = "__ol_classnsp_{}"
 OL_CLASS_LOADER: _ol_reserved_name = "__ol_loader_{}"
 OL_IMPORT_TMP: _ol_reserved_name = "__ol_mod_{}"
 OL_RUN: _ol_reserved_name = "__ol_run"
+OL_EXCEPT_CALLBACK: _ol_reserved_name = "__ol_except_callback"
 
 
 def ol_name(name: _ol_reserved_name):
