@@ -284,59 +284,60 @@ class PendingTry(_PendingCompoundStmt[Try]):
         return [result]
     def get_handlers(self) -> expr:
         handlers = self.nsp_global.expr_wraper(self.converted_handlers)
-        if isinstance(handlers,Call):
+        if isinstance(handlers,(Call,list)):
             func = handlers
             proc = []
             while isinstance(func,Call) and isinstance(func.func,Call):
                 proc.extend(func.args)
                 func = func.func
             proc.reverse()
-            handlers = Call(
-                func = Lambda(
-                    args = [Name('process')],
-                    body = Lambda(
-                        args = [Name('error')],
-                        body = Call(
-                            func = Name('next'),
-                            args=[
-                                GeneratorExp(
-                                    elt = Constant(None),
-                                    generators = [
-                                        comprehension(
-                                            target = Name('func'),
-                                            iter = Tuple(
-                                                elts = [
-                                                    Starred(value = Name('process')),
-                                                    Lambda(
-                                                        args = [Name('_')],
-                                                        body = Call(
-                                                            func = self.throw,
-                                                            args = [
-                                                                Name('error')
-                                                            ],
-                                                            keywords = []
-                                                        )
+        elif isinstance(handlers,List):
+            proc = handlers.elts
+        return Call(
+            func = Lambda(
+                args = [Name('process')],
+                body = Lambda(
+                    args = [Name('error')],
+                    body = Call(
+                        func = Name('next'),
+                        args=[
+                            GeneratorExp(
+                                elt = Constant(None),
+                                generators = [
+                                    comprehension(
+                                        target = Name('func'),
+                                        iter = Tuple(
+                                            elts = [
+                                                Starred(value = Name('process')),
+                                                Lambda(
+                                                    args = [Name('_')],
+                                                    body = Call(
+                                                        func = self.throw,
+                                                        args = [
+                                                            Name('error')
+                                                        ],
+                                                        keywords = []
                                                     )
-                                                ]
-                                            ),
-                                            ifs = [Call(
-                                                func = Name('func'),
-                                                args = [Name('error')],
-                                                keywords = []
-                                            )],
-                                            is_async = 0
-                                        )
-                                    ]
-                                )
-                            ],
-                            keywords=[]
-                        )
+                                                )
+                                            ]
+                                        ),
+                                        ifs = [Call(
+                                            func = Name('func'),
+                                            args = [Name('error')],
+                                            keywords = []
+                                        )],
+                                        is_async = 0
+                                    )
+                                ]
+                            )
+                        ],
+                        keywords=[]
                     )
-                ),
-                args=[List(elts = proc)],
-                keywords=[]
-            )
-        return handlers
+                )
+            ),
+            args=[List(elts = proc)],
+            keywords=[]
+        )
     def _iter_nodes(self) -> typing.Generator[AST, list[expr], None]:
         #修改自PendingIf 所以有可能有部分不符合try语句的结构
         if self.nsp.loop_stack:
