@@ -56,7 +56,6 @@ T = typing.TypeVar(
 )
 L = typing.TypeVar("L", While, For)
 
-
 class PendingNode(typing.Generic[T]):
     node: T
 
@@ -252,6 +251,7 @@ class PendingTry(_PendingCompoundStmt[Try]):
                 'globals()'
             ')'
         ).body[0].value
+        self.throw = parse('type(lambda:0)(next(c for c in compile("def _(e):raise e",__file__,\'exec\').co_consts if isinstance(c,type(compile("","","exec")))),globals())').body[0]
 
     def get_result(self) -> list[expr]:
         body = Lambda(
@@ -304,7 +304,21 @@ class PendingTry(_PendingCompoundStmt[Try]):
                                     generators = [
                                         comprehension(
                                             target = Name('func'),
-                                            iter = Name('process'),
+                                            iter = Tuple(
+                                                elts = [
+                                                    Starred(value = Name('process')),
+                                                    Lambda(
+                                                        args = [Name('_')],
+                                                        body = Call(
+                                                            func = self.throw,
+                                                            args = [
+                                                                Name('error')
+                                                            ],
+                                                            keywords = []
+                                                        )
+                                                    )
+                                                ]
+                                            ),
                                             ifs = [Call(
                                                 func = Name('func'),
                                                 args = [Name('error')],
