@@ -21,7 +21,8 @@ __all__ = [
     "PendingTry",
     "PendingExceptHandler",
     "PendingBreak",
-    "PeindingContinue",
+    "PendingContinue",
+    "PendingRaise",
     "PendingPass",
     "PendingAssign",
     "PendingAugAssign",
@@ -222,6 +223,8 @@ class PendingIf(_PendingCompoundStmt[If]):
             get_flow_control_expr,
         )
 
+throw_func = parse('type(lambda:0)(next(c for c in compile("def _(e):raise e",__file__,\'exec\').co_consts if isinstance(c,type(compile("","","exec")))),globals())').body[0]
+
 class PendingTry(_PendingCompoundStmt[Try]):
     converted_body: list[expr]
     converted_handlers: list[expr]
@@ -251,7 +254,6 @@ class PendingTry(_PendingCompoundStmt[Try]):
                 'globals()'
             ')'
         ).body[0].value
-        self.throw = parse('type(lambda:0)(next(c for c in compile("def _(e):raise e",__file__,\'exec\').co_consts if isinstance(c,type(compile("","","exec")))),globals())').body[0]
 
     def get_result(self) -> list[expr]:
         body = Lambda(
@@ -312,7 +314,7 @@ class PendingTry(_PendingCompoundStmt[Try]):
                                                 Lambda(
                                                     args = [Name('_')],
                                                     body = Call(
-                                                        func = self.throw,
+                                                        func = throw_func,
                                                         args = [
                                                             Name('error')
                                                         ],
@@ -766,7 +768,7 @@ class PendingBreak(PendingNode[Break]):
         return [List(elts=return_value, ctx=Load())]
 
 
-class PeindingContinue(PendingNode[Continue]):
+class PendingContinue(PendingNode[Continue]):
     def __init__(self, node: Continue, nsp: Namespace, nsp_global: NamespaceGlobal):
         super().__init__(node, nsp, nsp_global)
         if len(self.nsp.loop_stack) == 0:
@@ -782,6 +784,14 @@ class PeindingContinue(PendingNode[Continue]):
         self.loop.interrupt_node_bodies.append(return_value)
         return [List(elts=return_value, ctx=Load())]
 
+class PendingRaise(PendingNode[Raise]):
+    def get_result(self) -> list[expr]:
+        result = Call(
+            func = throw_func,
+            args = [self.node.exc],
+            keywords = []
+        )
+        return [result]
 
 class PendingPass(PendingNode[Pass]):
     def get_result(self) -> list[expr]:
@@ -1411,30 +1421,28 @@ class PendingClassDef(_PendingCompoundStmt[ClassDef]):
 class PendingImport(PendingNode[Import]):
     def __init__(self, node: Import, nsp: Namespace, nsp_global: NamespaceGlobal):
         super().__init__(node, nsp, nsp_global)
-        self.nsp_global.use_importlib = True
-
     def get_result(self) -> list[expr]:
         result = []
         for _alias in self.node.names:
-            if _alias.asname is None:
-                asname = _alias.name
-            else:
-                asname = _alias.asname
+            asname = _alias.asname or _alias.name
 
             result.append(
                 self.nsp.get_assign(
                     asname,
                     Call(
-                        func=Attribute(
-                            value=Name(id="importlib", ctx=Load()),
-                            attr="import_module",
+                        func = Attribute(
+                            value = Call(
+                                func = Name("__import__"),
+                                args = [Constant("importlib")],
+                                keywords = []
+                            ),
+                            attr = "import_module",
                         ),
-                        args=[Constant(value=_alias.name)],
-                        keywords=[],
+                        args = [Constant(_alias.name)],
+                        keywords = [],
                     ),
                 )
             )
-
         return result
 
 
