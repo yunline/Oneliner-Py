@@ -2,6 +2,7 @@ import itertools
 import symtable
 import sys
 import typing
+import warnings
 from ast import *
 
 from oneliner.config import Configs
@@ -341,11 +342,27 @@ def update_globals_from_lambda_or_comp(symt: symtable.Function, stack: list[Name
 
 
 def generate_nsp(symt: symtable.SymbolTable, configs: Configs):
-    walk_stack = []
+    walk_stack: list[typing.Iterator[symtable.SymbolTable]] = []
     generate_stack: list[Namespace] = []
     root = NamespaceGlobal(symt, generate_stack)
     root.load_configs(configs)
     generate_stack.append(root)
+
+    if sys.version_info < (3, 14):
+
+        def _symtable_is_function(symt: symtable.SymbolTable):
+            return isinstance(symt, symtable.Function)
+
+        def _symtable_is_class(symt: symtable.SymbolTable):
+            return isinstance(symt, symtable.Class)
+
+    else:
+
+        def _symtable_is_function(symt: symtable.SymbolTable):
+            return symt.get_type() == symtable.SymbolTableType.FUNCTION
+
+        def _symtable_is_class(symt: symtable.SymbolTable):
+            return symt.get_type() == symtable.SymbolTableType.CLASS
 
     walk_stack.append(iter(symt.get_children()))
     while walk_stack:
@@ -355,7 +372,10 @@ def generate_nsp(symt: symtable.SymbolTable, configs: Configs):
             walk_stack.pop()
             generate_stack.pop()
         else:
-            if isinstance(child_symt, symtable.Function):
+            if _symtable_is_function(child_symt):
+                child_symt = typing.cast(
+                    symtable.Function, child_symt
+                )  # making type-checker happy
                 if child_symt.get_name() == "lambda":
                     update_globals_from_lambda_or_comp(child_symt, generate_stack)
                     continue
@@ -365,10 +385,17 @@ def generate_nsp(symt: symtable.SymbolTable, configs: Configs):
                         continue
 
                 generate_stack.append(NamespaceFunction(child_symt, generate_stack))
-            elif isinstance(child_symt, symtable.Class):
+            elif _symtable_is_class(child_symt):
+                child_symt = typing.cast(
+                    symtable.Class, child_symt
+                )  # making type-checker happy
                 generate_stack.append(NamespaceClass(child_symt, generate_stack))
             else:  # pragma: no cover
-                raise RuntimeError("Unknown type of child symbol table")
+                if sys.version_info < (3, 14):
+                    warnings.warn(
+                        f"Unknown type of child symbol table type {type(child_symt)}"
+                    )
+                continue
             walk_stack.append(iter(child_symt.get_children()))
     return root
 
