@@ -13,7 +13,7 @@ ast2pending: dict[type[ast.AST], type[PendingNode]] = {
     ast.While: PendingWhile,
     ast.For: PendingFor,
     ast.Break: PendingBreak,
-    ast.Continue: PeindingContinue,
+    ast.Continue: PendingContinue,
     ast.Pass: PendingPass,
     ast.Assign: PendingAssign,
     ast.AnnAssign: PendingAssign,

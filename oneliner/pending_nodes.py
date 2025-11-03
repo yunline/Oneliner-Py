@@ -19,7 +19,7 @@ __all__ = [
     "PendingWhile",
     "PendingFor",
     "PendingBreak",
-    "PeindingContinue",
+    "PendingContinue",
     "PendingPass",
     "PendingAssign",
     "PendingAugAssign",
@@ -539,7 +539,7 @@ class PendingBreak(PendingNode[Break]):
         return [List(elts=return_value, ctx=Load())]
 
 
-class PeindingContinue(PendingNode[Continue]):
+class PendingContinue(PendingNode[Continue]):
     def __init__(self, node: Continue, nsp: Namespace, nsp_global: NamespaceGlobal):
         super().__init__(node, nsp, nsp_global)
         if len(self.nsp.loop_stack) == 0:
