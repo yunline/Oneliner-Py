@@ -44,3 +44,6 @@ profile = "black"
 
 [tool.coverage.run]
 omit = ["__main__.py"]
+source = ["oneliner"]
+branch = true
+

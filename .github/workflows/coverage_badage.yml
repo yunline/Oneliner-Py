@@ -17,13 +17,13 @@ jobs:
             
             - name: "Install and run test"
               run: |
-                python3 -m pip install -r requirements-dev.txt
+                python3 -m pip install -r requirements-test.txt
                 python3 -m pip install .
 
             - name: "Get coverage"
               id: total
               run: |
-                python3 -m coverage run --source=oneliner -m oneliner_tests
+                python3 -m coverage run -m pytest oneliner_tests
                 echo "total=$(python3 -m coverage report --format=total)" >> $GITHUB_ENV
             
             - name: Create Coverage Badge
