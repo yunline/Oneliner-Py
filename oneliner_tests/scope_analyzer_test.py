@@ -45,6 +45,28 @@ def test_declare_symbol_by_global_class_def():
     scope = analyze_scopes(ast.parse(code))
     assert "A" in scope.symbols
 
+def test_declare_symbol_by_global_import():
+    code = "import sys"
+    scope = analyze_scopes(ast.parse(code))
+    assert "sys" in scope.symbols
+
+    code = "import sys, os, ccb as bcc"
+    scope = analyze_scopes(ast.parse(code))
+    assert "sys" in scope.symbols
+    assert "os" in scope.symbols
+    assert "bcc" in scope.symbols
+
+def test_declare_symbol_by_global_from_import():
+    code = "from random import randint"
+    scope = analyze_scopes(ast.parse(code))
+    assert "randint" in scope.symbols
+
+    code = "from ... import a, b, c as d"
+    scope = analyze_scopes(ast.parse(code))
+    assert "a" in scope.symbols
+    assert "b" in scope.symbols
+    assert "d" in scope.symbols
+
 
 def test_global_in_global_scope():
     code = "global a"

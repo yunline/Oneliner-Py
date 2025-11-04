@@ -89,10 +89,12 @@ class Scope(typing.Generic[T]):
         elif isinstance(node, Nonlocal):
             for name in node.names:
                 self._bind_nonlocal(name)
-        elif isinstance(node, Import):
-            pass  # todo
-        elif isinstance(node, ImportFrom):
-            pass  # todo
+        elif isinstance(node, (Import, ImportFrom)):
+            for alias in node.names:
+                if alias.asname:
+                    self._declare_symbol(alias.asname)
+                else:
+                    self._declare_symbol(alias.name)
 
     def _analize_expr(self, node: expr) -> None:
         stack: list[expr] = [node]
@@ -182,3 +184,10 @@ class ScopeClass(Scope[ClassDef]):
 
 def analyze_scopes(root_node: Module) -> ScopeGlobal:
     return ScopeGlobal(root_node)
+
+if __name__=="__main__":
+    import ast
+    code = "from a import b,c,d"
+    scope = analyze_scopes(ast.parse(code))
+    print(scope.symbols)
+    print(scope.inner_scopes)
