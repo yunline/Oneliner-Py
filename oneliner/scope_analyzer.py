@@ -14,7 +14,7 @@ __all__ = [
 _CompTypes: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
 
 
-class SymbolTypeFlags(enum.Enum):
+class SymbolTypeFlags(enum.Flag):
     LOCAL = 0
     FREE = enum.auto()
     GLOBAL = enum.auto()
@@ -52,7 +52,7 @@ class Scope(typing.Generic[T]):
 
     def _analize_stmt(self, node: stmt) -> None:
         if isinstance(node, FunctionDef):
-            self._declare_symbol(node.name)
+            self._assign_symbol(node.name)
             for default in node.args.defaults:
                 self._analize_expr(default)
             for kw_default in node.args.kw_defaults:
@@ -60,7 +60,7 @@ class Scope(typing.Generic[T]):
                     self._analize_expr(kw_default)
             self.inner_scopes.append(ScopeFunction(node, self, self.global_scope))
         elif isinstance(node, ClassDef):
-            self._declare_symbol(node.name)
+            self._assign_symbol(node.name)
             for base in node.bases:
                 self._analize_expr(base)
             for kw in node.keywords:
@@ -92,9 +92,9 @@ class Scope(typing.Generic[T]):
         elif isinstance(node, (Import, ImportFrom)):
             for alias in node.names:
                 if alias.asname:
-                    self._declare_symbol(alias.asname)
+                    self._assign_symbol(alias.asname)
                 else:
-                    self._declare_symbol(alias.name)
+                    self._assign_symbol(alias.name)
 
     def _analize_expr(self, node: expr) -> None:
         stack: list[expr] = [node]
@@ -115,9 +115,9 @@ class Scope(typing.Generic[T]):
                 if isinstance(top.ctx, Load):
                     self._reference_symbol(top.id)
                 elif isinstance(top.ctx, Store):
-                    self._declare_symbol(top.id)
+                    self._assign_symbol(top.id)
             elif isinstance(top, NamedExpr):
-                self._declare_symbol(top.target.id)
+                self._assign_symbol(top.target.id)
                 stack.append(top.value)
             elif isinstance(top, Lambda):
                 pass  # todo
@@ -126,7 +126,7 @@ class Scope(typing.Generic[T]):
             else:
                 handle_generic_expr(top)
 
-    def _declare_symbol(self, name: str) -> None:
+    def _assign_symbol(self, name: str) -> None:
         raise NotImplementedError()
 
     def _reference_symbol(self, name: str) -> None:
@@ -144,7 +144,7 @@ class ScopeGlobal(Scope[Module]):
         self.global_scope = self
         super().__init__(node, self)
 
-    def _declare_symbol(self, name: str):
+    def _assign_symbol(self, name: str):
         self.symbols[name] = SymbolTypeFlags.LOCAL
 
     def _reference_symbol(self, name: str) -> None:
@@ -167,6 +167,18 @@ class ScopeFunction(Scope[FunctionDef]):
     ) -> None:
         self.outer_scope = outer_scope
         super().__init__(node, global_scope)
+    
+    def _assign_symbol(self, name: str) -> None:
+        if name in self.symbols:
+            return
+        self.symbols[name] = SymbolTypeFlags.LOCAL
+    
+    def _bind_global(self, name: str) -> None:
+        if name in self.symbols:
+            if not self.symbols[name]&SymbolTypeFlags.GLOBAL:
+                raise SyntaxError(f"name '{name}' is assigned to before global declaration")
+        else:
+            self.symbols[name] = SymbolTypeFlags.GLOBAL
 
 
 class ScopeClass(Scope[ClassDef]):
