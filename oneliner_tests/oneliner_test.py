@@ -1,8 +1,8 @@
 import unittest
 
-import oneliner
+import oneliner_test_utils as test_utils
 
-from . import oneliner_test_utils as test_utils
+import oneliner
 
 
 class TestErrors(unittest.TestCase):
