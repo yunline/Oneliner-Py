@@ -25,7 +25,7 @@ class SymbolTypeFlags(enum.Flag):
     PARAMETER = enum.auto()
 
 
-T = typing.TypeVar("T", Module, FunctionDef, ClassDef)
+T = typing.TypeVar("T", Module, FunctionDef, ClassDef, Lambda)
 
 
 class Scope(typing.Generic[T]):
@@ -35,29 +35,36 @@ class Scope(typing.Generic[T]):
 
     symbols: dict[str, SymbolTypeFlags]
 
+    _tmp_inner_scope_nodes: list[ClassDef | FunctionDef | Lambda]
+
     def __init__(self, node: T, globol_scope: "ScopeGlobal") -> None:
         self.node = node
         self.global_scope = globol_scope
         self.inner_scopes = []
         self.symbols = {}
+        self._tmp_inner_scope_nodes = []
 
     def _analyze_scope(self) -> None:
+        # this method is for (Module, FunctionDef, ClassDef) only
+        assert isinstance(self.node, (Module, FunctionDef, ClassDef))
+
         stack: list[stmt] = list(reversed(self.node.body))
-        inner_nodes: list[ClassDef | FunctionDef] = []
 
         while stack:
             top = stack.pop()
             if isinstance(top, (FunctionDef, ClassDef)):
-                inner_nodes.append(top)
+                self._tmp_inner_scope_nodes.append(top)
             self._analize_stmt(top)
             stack.extend(self._unfold_stmt(top))
 
-        for inner_node in inner_nodes:
+        for inner_node in self._tmp_inner_scope_nodes:
             new_scope: Scope
             if isinstance(inner_node, FunctionDef):
                 new_scope = ScopeFunction(inner_node, self, self.global_scope)
-            else:
+            elif isinstance(inner_node, ClassDef):
                 new_scope = ScopeClass(inner_node, self, self.global_scope)
+            else:
+                new_scope = ScopeLambda(inner_node, self, self.global_scope)
             self.inner_scopes.append(new_scope)
 
     def _unfold_stmt(self, node: stmt) -> typing.Iterable[stmt]:
@@ -137,7 +144,11 @@ class Scope(typing.Generic[T]):
                 self._assign_symbol(top.target.id)
                 stack.append(top.value)
             elif isinstance(top, Lambda):
-                pass  # todo
+                stack.extend(top.args.defaults)
+                for kw_default in top.args.kw_defaults:
+                    if kw_default is not None:
+                        stack.append(kw_default)
+                self._tmp_inner_scope_nodes.append(top)
             elif isinstance(top, _CompTypes):
                 pass  # todo
             else:
@@ -176,26 +187,12 @@ class ScopeGlobal(Scope[Module]):
         raise SyntaxError("nonlocal declaration not allowed at module level")
 
 
-class ScopeFunction(Scope[FunctionDef]):
+V = typing.TypeVar("V", FunctionDef, Lambda)
+
+
+class _ScopeFunctionBase(Scope[V]):
     outer_scope: "Scope"
-    nonlocal_reference_dict: dict[str, "ScopeFunction"]  # dst_name:src_scope
-
-    def __init__(
-        self, node: FunctionDef, outer_scope: Scope, global_scope: ScopeGlobal
-    ) -> None:
-        self.outer_scope = outer_scope
-        self.nonlocal_reference_dict = {}
-        super().__init__(node, global_scope)
-
-        args = node.args
-        for arg in itertools.chain(args.posonlyargs, args.args, args.kwonlyargs):
-            self.symbols[arg.arg] = SymbolTypeFlags.PARAMETER
-        if args.vararg is not None:
-            self.symbols[args.vararg.arg] = SymbolTypeFlags.PARAMETER
-        if args.kwarg is not None:
-            self.symbols[args.kwarg.arg] = SymbolTypeFlags.PARAMETER
-
-        self._analyze_scope()
+    nonlocal_reference_dict: dict[str, "_ScopeFunctionBase"]  # dst_name:src_scope
 
     def _assign_symbol(self, name: str) -> None:
         if (
@@ -218,7 +215,7 @@ class ScopeFunction(Scope[FunctionDef]):
             while isinstance(outer, ScopeClass):
                 outer = outer.outer_scope
 
-            assert isinstance(outer, ScopeFunction)
+            assert isinstance(outer, _ScopeFunctionBase)
             if name in outer.symbols:
                 outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
                 self.symbols[name] = SymbolTypeFlags.FREE
@@ -226,6 +223,25 @@ class ScopeFunction(Scope[FunctionDef]):
                 break
 
             outer = outer.outer_scope
+
+    def _register_function_args(self, args: arguments):
+        for arg in itertools.chain(args.posonlyargs, args.args, args.kwonlyargs):
+            self.symbols[arg.arg] = SymbolTypeFlags.PARAMETER
+        if args.vararg is not None:
+            self.symbols[args.vararg.arg] = SymbolTypeFlags.PARAMETER
+        if args.kwarg is not None:
+            self.symbols[args.kwarg.arg] = SymbolTypeFlags.PARAMETER
+
+
+class ScopeFunction(_ScopeFunctionBase[FunctionDef]):
+    def __init__(
+        self, node: FunctionDef, outer_scope: Scope, global_scope: ScopeGlobal
+    ) -> None:
+        self.outer_scope = outer_scope
+        self.nonlocal_reference_dict = {}
+        super().__init__(node, global_scope)
+        self._register_function_args(node.args)
+        self._analyze_scope()
 
     def _bind_global(self, name: str) -> None:
         if name in self.symbols:
@@ -268,6 +284,17 @@ class ScopeFunction(Scope[FunctionDef]):
             outer = outer.outer_scope
 
 
+class ScopeLambda(_ScopeFunctionBase[Lambda]):
+    def __init__(
+        self, node: Lambda, outer_scope: Scope, global_scope: ScopeGlobal
+    ) -> None:
+        self.outer_scope = outer_scope
+        self.nonlocal_reference_dict = {}
+        super().__init__(node, global_scope)
+        self._register_function_args(node.args)
+        self._analize_expr(node.body)
+
+
 class ScopeClass(Scope[ClassDef]):
     outer_scope: "Scope"
     nonlocal_reference_dict: dict[str, "ScopeFunction"]  # dst_name:src_scope
@@ -289,11 +316,8 @@ if __name__ == "__main__":
     import ast
 
     code = """
-def a():
-    def b():
-        global c
-        nonlocal c
+lambda:[a,a:=1]
 """
     scope = analyze_scopes(ast.parse(code))
     print(scope.symbols)
-    print(scope.inner_scopes)
+    print(scope.inner_scopes[0].symbols)

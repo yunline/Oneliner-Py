@@ -86,12 +86,24 @@ def test_nonlocal_in_global_scope():
     with pytest.raises(SyntaxError):
         analyze_scopes(ast.parse(code))
 
+def test_local_in_function_scope():
+    code = """
+def a():
+    b = 0
+    b = 1
+"""
+    scope = analyze_scopes(ast.parse(code))
+    assert scope.inner_scopes[0].symbols["b"] == SymbolTypeFlags.LOCAL
 
 def test_global_in_function_scope():
-    code = "def a(): global c,c,b"
+    code = """
+def a():
+    global c,c,b
+"""
     scope = analyze_scopes(ast.parse(code))
-    assert "c" in scope.inner_scopes[0].symbols
-    assert "b" in scope.inner_scopes[0].symbols
+    assert scope.inner_scopes[0].symbols["c"] == SymbolTypeFlags.GLOBAL
+    assert scope.inner_scopes[0].symbols["b"] == SymbolTypeFlags.GLOBAL
+
 
 def test_global_after_use_or_assign():
     code = """
