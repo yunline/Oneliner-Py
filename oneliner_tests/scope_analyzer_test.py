@@ -86,6 +86,7 @@ def test_nonlocal_in_global_scope():
     with pytest.raises(SyntaxError):
         analyze_scopes(ast.parse(code))
 
+
 def test_local_in_function_scope():
     code = """
 def a():
@@ -94,6 +95,7 @@ def a():
 """
     scope = analyze_scopes(ast.parse(code))
     assert scope.inner_scopes[0].symbols["b"] == SymbolTypeFlags.LOCAL
+
 
 def test_global_in_function_scope():
     code = """
@@ -128,6 +130,7 @@ def a():
     with pytest.raises(SyntaxError):
         analyze_scopes(tree)
 
+
 def test_nonlocal_after_use_or_assign():
     code = "def a(): c = 0; global c"
     tree = ast.parse(code)
@@ -150,6 +153,7 @@ def a():
     with pytest.raises(SyntaxError):
         analyze_scopes(tree)
 
+
 def test_nonlocal_repeat():
     code = """
 def a():
@@ -158,7 +162,7 @@ def a():
         nonlocal c
         nonlocal c
 """
-    analyze_scopes(ast.parse(code)) # no error
+    analyze_scopes(ast.parse(code))  # no error
 
 
 def test_nonlocal_and_global_at_the_same_function():
@@ -266,3 +270,55 @@ def a(p1, p2):
     assert a_scope.symbols["p1"] & SymbolTypeFlags.NONLOCAL_SRC
     assert a_scope.symbols["p2"] & SymbolTypeFlags.PARAMETER
     assert a_scope.symbols["p2"] & SymbolTypeFlags.NONLOCAL_SRC
+
+
+def test_ref_global_in_lambda():
+    code = "lambda:print(a)"
+    scope = analyze_scopes(ast.parse(code))
+    assert scope.inner_scopes[0].symbols["a"] == SymbolTypeFlags.REFERENCED_GLOBAL
+    assert scope.inner_scopes[0].symbols["print"] == SymbolTypeFlags.REFERENCED_GLOBAL
+
+
+def test_local_in_lambda():
+    code = "lambda:(a:=1)"
+    scope = analyze_scopes(ast.parse(code))
+    assert scope.inner_scopes[0].symbols["a"] == SymbolTypeFlags.LOCAL
+
+
+def test_local_overwrite_in_lambda():
+    code = "lambda:[print(a), (a:=1)]"
+    scope = analyze_scopes(ast.parse(code))
+    assert scope.inner_scopes[0].symbols["a"] == SymbolTypeFlags.LOCAL
+
+
+def test_free_in_lambda():
+    code = """
+def a():
+    b = 0
+    lambda:print(b)
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    lambda_scope = a_scope.inner_scopes[0]
+    assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+    assert lambda_scope.symbols["b"] == SymbolTypeFlags.FREE
+
+
+def test_parameters_in_lambda():
+    code = "lambda b, /, c, *args, d, e=0, **kw:0"
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    assert a_scope.symbols["b"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["c"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["args"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["d"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["e"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["kw"] & SymbolTypeFlags.PARAMETER
+
+    code = "lambda b, /, c, *, d, e=0:0"
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    assert a_scope.symbols["b"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["c"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["d"] & SymbolTypeFlags.PARAMETER
+    assert a_scope.symbols["e"] & SymbolTypeFlags.PARAMETER
