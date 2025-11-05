@@ -4,6 +4,7 @@ import enum
 from ast import *
 
 __all__ = [
+    "SymbolTypeFlags",
     "Scope",
     "ScopeGlobal",
     "ScopeFunction",
@@ -11,15 +12,16 @@ __all__ = [
     "analyze_scopes",
 ]
 
-_CompTypes: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
+_CompTypes = (ListComp, SetComp, DictComp, GeneratorExp)
 
 
 class SymbolTypeFlags(enum.Flag):
-    LOCAL = 0
-    FREE = enum.auto()
+    REFERENCED_GLOBAL = 1
+    LOCAL = enum.auto()
     GLOBAL = enum.auto()
     NONLOCAL_SRC = enum.auto()
     NONLOCAL_DST = enum.auto()
+    FREE = enum.auto()
     PARAMETER = enum.auto()
 
 
@@ -39,11 +41,24 @@ class Scope(typing.Generic[T]):
         self.inner_scopes = []
         self.symbols = {}
 
-        stack: list[stmt] = list(reversed(node.body))
+    def _analyze_scope(self) -> None:
+        stack: list[stmt] = list(reversed(self.node.body))
+        inner_nodes: list[ClassDef | FunctionDef] = []
+
         while stack:
             top = stack.pop()
+            if isinstance(top, (FunctionDef, ClassDef)):
+                inner_nodes.append(top)
             self._analize_stmt(top)
             stack.extend(self._unfold_stmt(top))
+
+        for inner_node in inner_nodes:
+            new_scope: Scope
+            if isinstance(inner_node, FunctionDef):
+                new_scope = ScopeFunction(inner_node, self, self.global_scope)
+            else:
+                new_scope = ScopeClass(inner_node, self, self.global_scope)
+            self.inner_scopes.append(new_scope)
 
     def _unfold_stmt(self, node: stmt) -> typing.Iterable[stmt]:
         if isinstance(node, (If, While, For)):
@@ -53,19 +68,21 @@ class Scope(typing.Generic[T]):
     def _analize_stmt(self, node: stmt) -> None:
         if isinstance(node, FunctionDef):
             self._assign_symbol(node.name)
+            for deco in node.decorator_list:
+                self._analize_expr(deco)
             for default in node.args.defaults:
                 self._analize_expr(default)
             for kw_default in node.args.kw_defaults:
                 if kw_default is not None:
                     self._analize_expr(kw_default)
-            self.inner_scopes.append(ScopeFunction(node, self, self.global_scope))
         elif isinstance(node, ClassDef):
             self._assign_symbol(node.name)
+            for deco in node.decorator_list:
+                self._analize_expr(deco)
             for base in node.bases:
                 self._analize_expr(base)
             for kw in node.keywords:
                 self._analize_expr(kw.value)
-            self.inner_scopes.append(ScopeClass(node, self, self.global_scope))
         elif isinstance(node, Expr):
             self._analize_expr(node.value)
         elif isinstance(node, (If, While)):
@@ -143,12 +160,14 @@ class ScopeGlobal(Scope[Module]):
     def __init__(self, node: Module) -> None:
         self.global_scope = self
         super().__init__(node, self)
+        self._analyze_scope()
 
     def _assign_symbol(self, name: str):
-        self.symbols[name] = SymbolTypeFlags.LOCAL
+        self.symbols[name] = SymbolTypeFlags.GLOBAL
 
     def _reference_symbol(self, name: str) -> None:
-        pass
+        if name not in self.symbols:
+            self.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
 
     def _bind_global(self, name: str) -> None:
         pass
@@ -158,48 +177,123 @@ class ScopeGlobal(Scope[Module]):
 
 
 class ScopeFunction(Scope[FunctionDef]):
-    outer_scope: Scope
-
-    nonlocal_reference_dict: dict[str, "ScopeFunction"]
+    outer_scope: "Scope"
+    nonlocal_reference_dict: dict[str, "ScopeFunction"]  # dst_name:src_scope
 
     def __init__(
         self, node: FunctionDef, outer_scope: Scope, global_scope: ScopeGlobal
     ) -> None:
         self.outer_scope = outer_scope
+        self.nonlocal_reference_dict = {}
         super().__init__(node, global_scope)
-    
+
+        args = node.args
+        for arg in itertools.chain(args.posonlyargs, args.args, args.kwonlyargs):
+            self.symbols[arg.arg] = SymbolTypeFlags.PARAMETER
+        if args.vararg is not None:
+            self.symbols[args.vararg.arg] = SymbolTypeFlags.PARAMETER
+        if args.kwarg is not None:
+            self.symbols[args.kwarg.arg] = SymbolTypeFlags.PARAMETER
+
+        self._analyze_scope()
+
     def _assign_symbol(self, name: str) -> None:
-        if name in self.symbols:
+        if (
+            name in self.symbols
+            and self.symbols[name] != SymbolTypeFlags.REFERENCED_GLOBAL
+        ):
             return
         self.symbols[name] = SymbolTypeFlags.LOCAL
-    
+
+    def _reference_symbol(self, name: str) -> None:
+        if name in self.symbols:
+            return
+
+        outer = self.outer_scope
+        while True:
+            if isinstance(outer, ScopeGlobal):
+                self.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
+                break
+
+            while isinstance(outer, ScopeClass):
+                outer = outer.outer_scope
+
+            assert isinstance(outer, ScopeFunction)
+            if name in outer.symbols:
+                outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
+                self.symbols[name] = SymbolTypeFlags.FREE
+                self.nonlocal_reference_dict[name] = outer
+                break
+
+            outer = outer.outer_scope
+
     def _bind_global(self, name: str) -> None:
         if name in self.symbols:
-            if not self.symbols[name]&SymbolTypeFlags.GLOBAL:
-                raise SyntaxError(f"name '{name}' is assigned to before global declaration")
+            sym = self.symbols[name]
+            if sym & SymbolTypeFlags.GLOBAL:
+                return
+            raise SyntaxError(f"name '{name}' is assigned to before global declaration")
         else:
             self.symbols[name] = SymbolTypeFlags.GLOBAL
 
+    def _bind_nonlocal(self, name: str) -> None:
+        if name in self.symbols:
+            sym = self.symbols[name]
+            if sym & SymbolTypeFlags.NONLOCAL_DST:
+                return
+            if sym & SymbolTypeFlags.GLOBAL:
+                raise SyntaxError(f"name '{name}' is nonlocal and global")
+            if sym & SymbolTypeFlags.LOCAL:
+                raise SyntaxError(
+                    f"name '{name}' is assigned prior to nonlocal declaration"
+                )
+            raise SyntaxError(f"name '{name}' is used to before nonlocal declaration")
+
+        outer = self.outer_scope
+        while True:
+            if isinstance(outer, ScopeGlobal):
+                raise SyntaxError(f"no binding for nonlocal '{name}' found")
+
+            if isinstance(outer, ScopeClass):
+                outer = outer.outer_scope
+                continue
+
+            assert isinstance(outer, ScopeFunction)
+            if name in outer.symbols:
+                outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
+                self.symbols[name] = SymbolTypeFlags.NONLOCAL_DST
+                self.nonlocal_reference_dict[name] = outer
+                break
+
+            outer = outer.outer_scope
+
 
 class ScopeClass(Scope[ClassDef]):
-    outer_scope: Scope
-
-    global_symbol_list: list[str]
-    nonlocal_symbol_dict: dict[str, ScopeFunction]
+    outer_scope: "Scope"
+    nonlocal_reference_dict: dict[str, "ScopeFunction"]  # dst_name:src_scope
 
     def __init__(
         self, node: ClassDef, outer_scope: Scope, global_scope: ScopeGlobal
     ) -> None:
         self.outer_scope = outer_scope
+        self.nonlocal_reference_dict = {}
         super().__init__(node, global_scope)
+        self._analyze_scope()
 
 
 def analyze_scopes(root_node: Module) -> ScopeGlobal:
     return ScopeGlobal(root_node)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     import ast
-    code = "from a import b,c,d"
+
+    code = """
+def a():
+    def b():
+        global c
+        nonlocal c
+"""
     scope = analyze_scopes(ast.parse(code))
     print(scope.symbols)
     print(scope.inner_scopes)
