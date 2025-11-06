@@ -35,7 +35,9 @@ T = typing.TypeVar("T", Module, FunctionDef, ClassDef, Lambda, _Comprehensions)
 
 class Scope(typing.Generic[T]):
     node: T
+    outer_scope: "Scope"
     inner_scopes: list["Scope"]
+    nonlocal_reference_dict: dict[str, "_ScopeFunctionBase"]  # dst_name:src_scope
 
     symbols: dict[str, SymbolTypeFlags]
 
@@ -191,13 +193,10 @@ class ScopeGlobal(Scope[Module]):
         raise SyntaxError("nonlocal declaration not allowed at module level")
 
 
-V = typing.TypeVar("V", FunctionDef, Lambda, _Comprehensions)
+V = typing.TypeVar("V", FunctionDef, Lambda)
 
 
 class _ScopeFunctionBase(Scope[V]):
-    outer_scope: "Scope"
-    nonlocal_reference_dict: dict[str, "_ScopeFunctionBase"]  # dst_name:src_scope
-
     def _assign_symbol(self, name: str) -> None:
         if (
             name in self.symbols
@@ -236,16 +235,9 @@ class _ScopeFunctionBase(Scope[V]):
         if args.kwarg is not None:
             self.symbols[args.kwarg.arg] = SymbolTypeFlags.PARAMETER
 
+S = typing.TypeVar("S", FunctionDef, ClassDef)
 
-class ScopeFunction(_ScopeFunctionBase[FunctionDef]):
-    def __init__(self, node: FunctionDef, outer_scope: Scope) -> None:
-        self.outer_scope = outer_scope
-        self.nonlocal_reference_dict = {}
-        super().__init__(node)
-        self._register_function_args(node.args)
-        self._analyze_scope()
-        self._recursive_generate_inner_scope()
-
+class _ScopeBlockBase(Scope[S]):
     def _bind_global(self, name: str) -> None:
         if name not in self.symbols:
             self.symbols[name] = SymbolTypeFlags.GLOBAL
@@ -295,6 +287,15 @@ class ScopeFunction(_ScopeFunctionBase[FunctionDef]):
             outer = outer.outer_scope
 
 
+class ScopeFunction(_ScopeFunctionBase[FunctionDef], _ScopeBlockBase[FunctionDef]):
+    def __init__(self, node: FunctionDef, outer_scope: Scope) -> None:
+        self.outer_scope = outer_scope
+        self.nonlocal_reference_dict = {}
+        super().__init__(node)
+        self._register_function_args(node.args)
+        self._analyze_scope()
+        self._recursive_generate_inner_scope()
+
 class ScopeLambda(_ScopeFunctionBase[Lambda]):
     def __init__(self, node: Lambda, outer_scope: Scope) -> None:
         self.outer_scope = outer_scope
@@ -303,7 +304,6 @@ class ScopeLambda(_ScopeFunctionBase[Lambda]):
         self._register_function_args(node.args)
         self._analize_expr(node.body)
         self._recursive_generate_inner_scope()
-
 
 class ScopeComprehensions(Scope[_Comprehensions]):
     reference_dict: dict[str, Scope]
@@ -391,16 +391,38 @@ class ScopeComprehensions(Scope[_Comprehensions]):
         self.reference_dict[name] = outer
 
 
-class ScopeClass(Scope[ClassDef]):
-    outer_scope: "Scope"
-    nonlocal_reference_dict: dict[str, "ScopeFunction"]  # dst_name:src_scope
-
+class ScopeClass(_ScopeBlockBase[ClassDef]):
     def __init__(self, node: ClassDef, outer_scope: Scope) -> None:
         self.outer_scope = outer_scope
         self.nonlocal_reference_dict = {}
         super().__init__(node)
         self._analyze_scope()
-
+        self._recursive_generate_inner_scope()
+    
+    def _assign_symbol(self, name: str) -> None:
+        if name in self.symbols:
+            return
+        self.symbols[name] = SymbolTypeFlags.LOCAL
+    
+    def _reference_symbol(self, name: str) -> None:
+        if name in self.symbols:
+            return
+        
+        outer = self.outer_scope
+        while 1:
+            if isinstance(outer, ScopeGlobal):
+                self.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
+                return
+            if isinstance(outer, ScopeFunction):
+                if name in outer.symbols and outer.symbols[name] & (SymbolTypeFlags.PARAMETER|SymbolTypeFlags.LOCAL):
+                    self.symbols[name] = SymbolTypeFlags.FREE
+                    self.nonlocal_reference_dict[name] = outer
+                return
+            if isinstance(outer, ScopeClass):
+                outer = outer.outer_scope
+                continue
+            else:
+                raise RuntimeError(f"Invalid outer scope type {type(outer)}")
 
 def analyze_scopes(root_node: Module) -> ScopeGlobal:
     return ScopeGlobal(root_node)
@@ -411,8 +433,10 @@ if __name__ == "__main__":
 
     code = """
 def a():
-    print(b)
-    [b:=2 for _ in range(10)]
+    b = 0
+    def c():
+        print(b)
+        global b
 """
     scope = analyze_scopes(ast.parse(code))
     print(scope.inner_scopes[0].symbols)

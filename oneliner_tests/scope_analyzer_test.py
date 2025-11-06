@@ -435,3 +435,37 @@ def a():
     scope = analyze_scopes(ast.parse(code))
     a_scope = scope.inner_scopes[0]
     assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+
+def test_class_assign_local():
+    code = """
+class A:
+    b = 1
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+
+def test_class_assign_global():
+    code = """
+class A:
+    global b
+    b = 1
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.GLOBAL
+
+def test_class_assign_nonlocal():
+    code = """
+def f():
+    b = 0
+    class A:
+        nonlocal b
+        b = 1
+"""
+    scope = analyze_scopes(ast.parse(code))
+    f_scope = scope.inner_scopes[0]
+    a_scope = f_scope.inner_scopes[0]
+    assert f_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+    assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_DST
+
