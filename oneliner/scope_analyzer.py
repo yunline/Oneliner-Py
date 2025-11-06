@@ -8,11 +8,11 @@ __all__ = [
     "Scope",
     "ScopeGlobal",
     "ScopeFunction",
+    "ScopeLambda",
+    "ScopeComprehensions",
     "ScopeClass",
     "analyze_scopes",
 ]
-
-_CompTypes = (ListComp, SetComp, DictComp, GeneratorExp)
 
 
 class SymbolTypeFlags(enum.Flag):
@@ -23,23 +23,26 @@ class SymbolTypeFlags(enum.Flag):
     NONLOCAL_DST = enum.auto()
     FREE = enum.auto()
     PARAMETER = enum.auto()
+    COMPREHENSION_TARGET = enum.auto()
+    COMPREHENSION_REFERENCE = enum.auto()
+    COMPREHENSION_ASSIGNMENT = enum.auto()
 
 
-T = typing.TypeVar("T", Module, FunctionDef, ClassDef, Lambda)
+_Comprehensions: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
+
+T = typing.TypeVar("T", Module, FunctionDef, ClassDef, Lambda, _Comprehensions)
 
 
 class Scope(typing.Generic[T]):
     node: T
     inner_scopes: list["Scope"]
-    global_scope: "ScopeGlobal"
 
     symbols: dict[str, SymbolTypeFlags]
 
-    _tmp_inner_scope_nodes: list[ClassDef | FunctionDef | Lambda]
+    _tmp_inner_scope_nodes: list[ClassDef | FunctionDef | Lambda | _Comprehensions]
 
-    def __init__(self, node: T, globol_scope: "ScopeGlobal") -> None:
+    def __init__(self, node: T) -> None:
         self.node = node
-        self.global_scope = globol_scope
         self.inner_scopes = []
         self.symbols = {}
         self._tmp_inner_scope_nodes = []
@@ -52,19 +55,20 @@ class Scope(typing.Generic[T]):
 
         while stack:
             top = stack.pop()
-            if isinstance(top, (FunctionDef, ClassDef)):
-                self._tmp_inner_scope_nodes.append(top)
             self._analize_stmt(top)
             stack.extend(self._unfold_stmt(top))
 
+    def _recursive_generate_inner_scope(self) -> None:
         for inner_node in self._tmp_inner_scope_nodes:
             new_scope: Scope
             if isinstance(inner_node, FunctionDef):
-                new_scope = ScopeFunction(inner_node, self, self.global_scope)
+                new_scope = ScopeFunction(inner_node, self)
             elif isinstance(inner_node, ClassDef):
-                new_scope = ScopeClass(inner_node, self, self.global_scope)
+                new_scope = ScopeClass(inner_node, self)
+            elif isinstance(inner_node, Lambda):
+                new_scope = ScopeLambda(inner_node, self)
             else:
-                new_scope = ScopeLambda(inner_node, self, self.global_scope)
+                new_scope = ScopeComprehensions(inner_node, self)
             self.inner_scopes.append(new_scope)
 
     def _unfold_stmt(self, node: stmt) -> typing.Iterable[stmt]:
@@ -74,6 +78,7 @@ class Scope(typing.Generic[T]):
 
     def _analize_stmt(self, node: stmt) -> None:
         if isinstance(node, FunctionDef):
+            self._tmp_inner_scope_nodes.append(node)
             self._assign_symbol(node.name)
             for deco in node.decorator_list:
                 self._analize_expr(deco)
@@ -83,6 +88,7 @@ class Scope(typing.Generic[T]):
                 if kw_default is not None:
                     self._analize_expr(kw_default)
         elif isinstance(node, ClassDef):
+            self._tmp_inner_scope_nodes.append(node)
             self._assign_symbol(node.name)
             for deco in node.decorator_list:
                 self._analize_expr(deco)
@@ -149,8 +155,8 @@ class Scope(typing.Generic[T]):
                     if kw_default is not None:
                         stack.append(kw_default)
                 self._tmp_inner_scope_nodes.append(top)
-            elif isinstance(top, _CompTypes):
-                pass  # todo
+            elif isinstance(top, (ListComp, SetComp, DictComp, GeneratorExp)):
+                self._tmp_inner_scope_nodes.append(top)
             else:
                 handle_generic_expr(top)
 
@@ -169,9 +175,9 @@ class Scope(typing.Generic[T]):
 
 class ScopeGlobal(Scope[Module]):
     def __init__(self, node: Module) -> None:
-        self.global_scope = self
-        super().__init__(node, self)
+        super().__init__(node)
         self._analyze_scope()
+        self._recursive_generate_inner_scope()
 
     def _assign_symbol(self, name: str):
         self.symbols[name] = SymbolTypeFlags.GLOBAL
@@ -187,7 +193,7 @@ class ScopeGlobal(Scope[Module]):
         raise SyntaxError("nonlocal declaration not allowed at module level")
 
 
-V = typing.TypeVar("V", FunctionDef, Lambda)
+V = typing.TypeVar("V", FunctionDef, Lambda, _Comprehensions)
 
 
 class _ScopeFunctionBase(Scope[V]):
@@ -234,14 +240,13 @@ class _ScopeFunctionBase(Scope[V]):
 
 
 class ScopeFunction(_ScopeFunctionBase[FunctionDef]):
-    def __init__(
-        self, node: FunctionDef, outer_scope: Scope, global_scope: ScopeGlobal
-    ) -> None:
+    def __init__(self, node: FunctionDef, outer_scope: Scope) -> None:
         self.outer_scope = outer_scope
         self.nonlocal_reference_dict = {}
-        super().__init__(node, global_scope)
+        super().__init__(node)
         self._register_function_args(node.args)
         self._analyze_scope()
+        self._recursive_generate_inner_scope()
 
     def _bind_global(self, name: str) -> None:
         if name in self.symbols:
@@ -285,26 +290,109 @@ class ScopeFunction(_ScopeFunctionBase[FunctionDef]):
 
 
 class ScopeLambda(_ScopeFunctionBase[Lambda]):
-    def __init__(
-        self, node: Lambda, outer_scope: Scope, global_scope: ScopeGlobal
-    ) -> None:
+    def __init__(self, node: Lambda, outer_scope: Scope) -> None:
         self.outer_scope = outer_scope
         self.nonlocal_reference_dict = {}
-        super().__init__(node, global_scope)
+        super().__init__(node)
         self._register_function_args(node.args)
         self._analize_expr(node.body)
+        self._recursive_generate_inner_scope()
+
+
+class ScopeComprehensions(Scope[_Comprehensions]):
+    reference_dict: dict[str, Scope]
+    _analyzing_comp_targets: bool
+
+    def __init__(self, node: _Comprehensions, outer_scope: Scope) -> None:
+        self.outer_scope = outer_scope
+        self.reference_dict = {}
+        super().__init__(node)
+
+        self._analyzing_comp_targets = True
+
+        for gen in node.generators:
+            self._analize_expr(gen.target)
+
+        self._analyzing_comp_targets = False
+
+        for gen in node.generators:
+            self._analize_expr(gen.iter)
+            for _if in gen.ifs:
+                self._analize_expr(_if)
+
+        if isinstance(node, DictComp):
+            self._analize_expr(node.key)
+            self._analize_expr(node.value)
+        else:
+            self._analize_expr(node.elt)
+
+        self._recursive_generate_inner_scope()
+
+    def _assign_symbol(self, name: str) -> None:
+        if self._analyzing_comp_targets:
+            self.symbols[name] = SymbolTypeFlags.COMPREHENSION_TARGET
+            return
+
+        outer: Scope = self
+        while isinstance(outer, ScopeComprehensions):
+            if (
+                name in outer.symbols
+                and outer.symbols[name] & SymbolTypeFlags.COMPREHENSION_TARGET
+            ):
+                raise SyntaxError(
+                    f"assignment expression cannot rebind comprehension iteration variable '{name}'"
+                )
+            outer = outer.outer_scope
+
+        self.reference_dict[name] = outer
+
+        if isinstance(outer, ScopeGlobal):
+            self.symbols[name] = SymbolTypeFlags.COMPREHENSION_ASSIGNMENT
+            return
+
+        if isinstance(outer, _ScopeFunctionBase):
+            self.symbols[name] = SymbolTypeFlags.COMPREHENSION_ASSIGNMENT
+            if name in outer.symbols:
+                if outer.symbols[name] == SymbolTypeFlags.REFERENCED_GLOBAL:
+                    outer.symbols[name] = SymbolTypeFlags.LOCAL
+            else:
+                outer.symbols[name] = SymbolTypeFlags.LOCAL
+            return
+
+        if isinstance(outer, ScopeClass):
+            # todo
+            return
+
+    def _reference_symbol(self, name: str) -> None:
+        if self._analyzing_comp_targets: # pragma: no cover
+            raise RuntimeError(
+                "Shall never call _reference_symbol when _analyzing_comp_targets is True"
+            )
+
+        if name in self.symbols:
+            return
+
+        self.symbols[name] = SymbolTypeFlags.COMPREHENSION_REFERENCE
+        outer: Scope = self.outer_scope
+        while isinstance(outer, ScopeComprehensions):
+            if (
+                name in outer.symbols
+                and outer.symbols[name] & SymbolTypeFlags.COMPREHENSION_TARGET
+            ):
+                self.reference_dict[name] = outer
+                return
+            outer = outer.outer_scope
+        self.reference_dict[name] = outer
 
 
 class ScopeClass(Scope[ClassDef]):
     outer_scope: "Scope"
     nonlocal_reference_dict: dict[str, "ScopeFunction"]  # dst_name:src_scope
 
-    def __init__(
-        self, node: ClassDef, outer_scope: Scope, global_scope: ScopeGlobal
-    ) -> None:
+    def __init__(self, node: ClassDef, outer_scope: Scope) -> None:
         self.outer_scope = outer_scope
         self.nonlocal_reference_dict = {}
-        super().__init__(node, global_scope)
+        super().__init__(node)
         self._analyze_scope()
 
 
@@ -316,8 +404,9 @@ if __name__ == "__main__":
     import ast
 
     code = """
-lambda:[a,a:=1]
+def a():
+    print(b)
+    [b:=2 for _ in range(10)]
 """
     scope = analyze_scopes(ast.parse(code))
-    print(scope.symbols)
     print(scope.inner_scopes[0].symbols)

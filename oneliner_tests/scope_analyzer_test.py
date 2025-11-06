@@ -304,6 +304,13 @@ def a():
     assert lambda_scope.symbols["b"] == SymbolTypeFlags.FREE
 
 
+def test_nesting_lambda():
+    code = "lambda:lambda:a"
+    scope = analyze_scopes(ast.parse(code))
+    assert len(scope.inner_scopes) == 1
+    assert len(scope.inner_scopes[0].inner_scopes) == 1
+
+
 def test_parameters_in_lambda():
     code = "lambda b, /, c, *args, d, e=0, **kw:0"
     scope = analyze_scopes(ast.parse(code))
@@ -322,3 +329,80 @@ def test_parameters_in_lambda():
     assert a_scope.symbols["c"] & SymbolTypeFlags.PARAMETER
     assert a_scope.symbols["d"] & SymbolTypeFlags.PARAMETER
     assert a_scope.symbols["e"] & SymbolTypeFlags.PARAMETER
+
+
+def test_assign_in_comprehension_in_global():
+    code = "[(a:=a+i, c) for i in range(10)]"
+    scope = analyze_scopes(ast.parse(code))
+    comp_scope = scope.inner_scopes[0]
+    assert comp_scope.symbols["a"] == SymbolTypeFlags.COMPREHENSION_ASSIGNMENT
+    assert comp_scope.symbols["c"] == SymbolTypeFlags.COMPREHENSION_REFERENCE
+    assert comp_scope.symbols["i"] == SymbolTypeFlags.COMPREHENSION_TARGET
+    assert comp_scope.symbols["range"] == SymbolTypeFlags.COMPREHENSION_REFERENCE
+
+
+def test_nested_comprehension_reference_target():
+    code = "[[(i,j) for j in range(10)] for i in range(10)]"
+    scope = analyze_scopes(ast.parse(code))
+    comp1_scope = scope.inner_scopes[0]
+    comp2_scope = comp1_scope.inner_scopes[0]
+    assert comp1_scope.symbols["i"] & SymbolTypeFlags.COMPREHENSION_TARGET
+    assert comp2_scope.symbols["j"] & SymbolTypeFlags.COMPREHENSION_TARGET
+    assert comp2_scope.symbols["i"] & SymbolTypeFlags.COMPREHENSION_REFERENCE
+    assert isinstance(comp2_scope, ScopeComprehensions)
+    assert comp2_scope.reference_dict["i"] is comp1_scope
+
+
+def test_nested_comprehension_reference_outer_scope_symbool():
+    code = """
+def a():
+    d = 1
+    [[d for j in range(10)] for i in range(10)]
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    comp1_scope = a_scope.inner_scopes[0]
+    comp2_scope = comp1_scope.inner_scopes[0]
+    assert comp2_scope.symbols["d"] & SymbolTypeFlags.COMPREHENSION_REFERENCE
+    assert isinstance(comp2_scope, ScopeComprehensions)
+    assert comp2_scope.reference_dict["d"] is a_scope
+
+def test_assign_to_comprehension_target():
+    code = "[i:=1 for i in range(10)]"
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError):
+        analyze_scopes(tree)
+
+    code = "[[i:=1 for j in range] for i in range(10)]"
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError):
+        analyze_scopes(tree)
+
+
+def test_comprehension_assign_overwrite_symbol_type():
+    code = """
+def a():
+    print(b)
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.REFERENCED_GLOBAL
+
+    code = """
+def a():
+    print(b)
+    [b:=2 for _ in range(10)]
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_comprehension_assign_creates_new_local_symbole_in_outer_scope():
+    code = """
+def a():
+    [b:=2 for _ in range(10)]
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
