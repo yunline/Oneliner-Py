@@ -111,6 +111,36 @@ def test_global_after_use_or_assign():
     code = """
 def a():
     c = 0
+    global c
+"""
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError):
+        analyze_scopes(tree)
+
+    code = """
+def a():
+    print(c)
+    global c
+"""
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError):
+        analyze_scopes(tree)
+
+def test_declare_global_on_a_parameter():
+    code = """
+def a(c):
+    global c
+"""
+
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError):
+        analyze_scopes(tree)
+
+
+def test_nonlocal_after_use_or_assign():
+    code = """
+def a():
+    c = 0
     def b():
         c = 0
         nonlocal c
@@ -126,18 +156,6 @@ def a():
         print(c)
         nonlocal c
 """
-    tree = ast.parse(code)
-    with pytest.raises(SyntaxError):
-        analyze_scopes(tree)
-
-
-def test_nonlocal_after_use_or_assign():
-    code = "def a(): c = 0; global c"
-    tree = ast.parse(code)
-    with pytest.raises(SyntaxError):
-        analyze_scopes(tree)
-
-    code = "def a(): print(c); global c"
     tree = ast.parse(code)
     with pytest.raises(SyntaxError):
         analyze_scopes(tree)
@@ -170,6 +188,17 @@ def test_nonlocal_and_global_at_the_same_function():
 def a():
     global b
     nonlocal b
+"""
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError):
+        analyze_scopes(tree)
+
+    code = """
+def q():
+    b = 0
+    def a():
+        nonlocal b
+        global b
 """
     tree = ast.parse(code)
     with pytest.raises(SyntaxError):

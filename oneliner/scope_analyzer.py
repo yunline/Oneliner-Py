@@ -56,7 +56,10 @@ class Scope(typing.Generic[T]):
         while stack:
             top = stack.pop()
             self._analize_stmt(top)
-            stack.extend(self._unfold_stmt(top))
+
+            if isinstance(top, (If, While, For)):
+                stack.extend(reversed(top.body))
+                stack.extend(reversed(top.orelse))
 
     def _recursive_generate_inner_scope(self) -> None:
         for inner_node in self._tmp_inner_scope_nodes:
@@ -70,11 +73,6 @@ class Scope(typing.Generic[T]):
             else:
                 new_scope = ScopeComprehensions(inner_node, self)
             self.inner_scopes.append(new_scope)
-
-    def _unfold_stmt(self, node: stmt) -> typing.Iterable[stmt]:
-        if isinstance(node, (If, While, For)):
-            return itertools.chain(reversed(node.body), reversed(node.orelse))
-        return []
 
     def _analize_stmt(self, node: stmt) -> None:
         if isinstance(node, FunctionDef):
@@ -249,13 +247,21 @@ class ScopeFunction(_ScopeFunctionBase[FunctionDef]):
         self._recursive_generate_inner_scope()
 
     def _bind_global(self, name: str) -> None:
-        if name in self.symbols:
-            sym = self.symbols[name]
-            if sym & SymbolTypeFlags.GLOBAL:
-                return
-            raise SyntaxError(f"name '{name}' is assigned to before global declaration")
-        else:
+        if name not in self.symbols:
             self.symbols[name] = SymbolTypeFlags.GLOBAL
+            return
+        sym = self.symbols[name]
+        if sym & SymbolTypeFlags.GLOBAL:
+            return
+        if sym & SymbolTypeFlags.LOCAL:
+            raise SyntaxError(f"name '{name}' is assigned to before global declaration")
+        if sym & (SymbolTypeFlags.REFERENCED_GLOBAL | SymbolTypeFlags.FREE):
+            raise SyntaxError(f"name '{name}' is used prior to global declaration")
+        if sym & SymbolTypeFlags.PARAMETER:
+            raise SyntaxError(f"name '{name}' is parameter and global")
+        if sym & SymbolTypeFlags.NONLOCAL_DST:
+            raise SyntaxError(f"name '{name}' is nonlocal and global")
+        raise RuntimeError(f"Unable to declare name '{name}' global")
 
     def _bind_nonlocal(self, name: str) -> None:
         if name in self.symbols:
