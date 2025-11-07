@@ -178,9 +178,15 @@ def _assign_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
             outer.symbols[name] = SymbolTypeFlags.LOCAL
         return
 
-    if isinstance(outer, ScopeClass):
-        # todo
-        return
+    if isinstance(outer.node, ClassDef):
+        raise SyntaxError(
+            "assignment expression within a comprehension cannot be used in a class body"
+        )
+
+    raise RuntimeError(  # pragma: no cover
+        f"Invalid outer scope '{type(outer.node)}' was found "
+        f"when analyzing assignment in comprehension"
+    )
 
 
 def _reference_symbol_global(ctx: AnalysisContext, name: str) -> None:
@@ -216,7 +222,7 @@ def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
         return
 
     outer = ctx.outer_ctx
-    while 1:
+    while True:
         if isinstance(outer.node, Module):
             ctx.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
             return
@@ -224,21 +230,26 @@ def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
             if name in outer.symbols and outer.symbols[name] & (
                 SymbolTypeFlags.PARAMETER | SymbolTypeFlags.LOCAL
             ):
+                # since class scope is disposable,
+                # we dont mark the referenced symbol as NONLOCAL_SRC
                 ctx.symbols[name] = SymbolTypeFlags.FREE
                 ctx.nonlocal_reference_dict[name] = outer.result
-            return
+                return
+            else:
+                outer = outer.outer_ctx
+                continue
         if isinstance(outer.node, ClassDef):
             outer = outer.outer_ctx
             continue
-        else:
+        else:  # pragma: no cover
             raise RuntimeError(f"Invalid outer scope type {type(outer)}")
 
 
 def _reference_symbol_comprehensions_target(
     ctx: AnalysisContext, name: str
-) -> typing.NoReturn:
+) -> typing.NoReturn:  # pragma: no cover
     raise RuntimeError(
-        "Shall never call _reference_symbol when _analyzing_comp_targets is True"
+        "Should never reference a symbol when analyzing comprehension target"
     )
 
 
@@ -246,6 +257,8 @@ def _reference_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
     if name in ctx.symbols:
         return
 
+    # since comprehension scope is disposable,
+    # we dont mark the referenced symbol as NONLOCAL_SRC
     ctx.symbols[name] = SymbolTypeFlags.COMPREHENSION_REFERENCE
     outer = ctx.outer_ctx
     while isinstance(outer.node, ComprehensionTypes):
@@ -278,7 +291,7 @@ def _bind_global_block(ctx: AnalysisContext, name: str) -> None:
         raise SyntaxError(f"name '{name}' is parameter and global")
     if sym & SymbolTypeFlags.NONLOCAL_DST:
         raise SyntaxError(f"name '{name}' is nonlocal and global")
-    raise RuntimeError(f"Unable to declare name '{name}' global")
+    raise RuntimeError(f"Unable to declare name '{name}' global")  # pragma: no cover
 
 
 def _bind_nonlocal_global(ctx: AnalysisContext, name: str) -> None:
@@ -296,6 +309,7 @@ def _bind_nonlocal_block(ctx: AnalysisContext, name: str) -> None:
             raise SyntaxError(
                 f"name '{name}' is assigned prior to nonlocal declaration"
             )
+        # todo
         raise SyntaxError(f"name '{name}' is used to before nonlocal declaration")
 
     outer = ctx.outer_ctx
@@ -307,14 +321,19 @@ def _bind_nonlocal_block(ctx: AnalysisContext, name: str) -> None:
             outer = outer.outer_ctx
             continue
 
-        assert isinstance(outer.node, FunctionDef)
-        if name in outer.symbols:
-            outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
-            ctx.symbols[name] = SymbolTypeFlags.NONLOCAL_DST
-            ctx.nonlocal_reference_dict[name] = outer.result
-            break
+        if isinstance(outer.node, FunctionDef):
+            if name in outer.symbols:
+                outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
+                ctx.symbols[name] = SymbolTypeFlags.NONLOCAL_DST
+                ctx.nonlocal_reference_dict[name] = outer.result
+                break
+            outer = outer.outer_ctx
+            continue
 
-        outer = outer.outer_ctx
+        raise RuntimeError(  # pragma: no cover
+            f"Invalid outer scope '{type(outer.node)}' was found "
+            f"when searching source of nonlocal"
+        )
 
 
 def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) -> None:
@@ -348,13 +367,15 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
             stack.extend(reversed(top.body))
             stack.extend(reversed(top.orelse))
         elif isinstance(top, For):
+            _analyze_expr(ctx, top.target)
             _analyze_expr(ctx, top.iter)
             stack.extend(reversed(top.body))
             stack.extend(reversed(top.orelse))
         elif isinstance(top, (Break, Continue, Pass)):
             pass
-        elif isinstance(top, Return) and top.value is not None:
-            _analyze_expr(ctx, top.value)
+        elif isinstance(top, Return):
+            if top.value is not None:
+                _analyze_expr(ctx, top.value)
         elif isinstance(top, (AugAssign, AnnAssign)) and top.value is not None:
             _analyze_expr(ctx, top.target)
             _analyze_expr(ctx, top.value)
@@ -374,6 +395,8 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
                     ctx.assign_symbol(alias.asname)
                 else:
                     ctx.assign_symbol(alias.name)
+        else:
+            raise RuntimeError(f"Unsupported statement type '{type(top)}'")
 
 
 def _analyze_expr(ctx: AnalysisContext, node: expr) -> None:
@@ -386,6 +409,10 @@ def _analyze_expr(ctx: AnalysisContext, node: expr) -> None:
                 ctx.reference_symbol(top.id)
             elif isinstance(top.ctx, Store):
                 ctx.assign_symbol(top.id)
+            elif isinstance(top.ctx, Del):  # pragma: no cover
+                pass
+            else:  # pragma: no cover
+                raise RuntimeError("Invalid expr_context of the Name node")
         elif isinstance(top, NamedExpr):
             ctx.assign_symbol(top.target.id)
             stack.append(top.value)
@@ -398,6 +425,7 @@ def _analyze_expr(ctx: AnalysisContext, node: expr) -> None:
         elif isinstance(top, ComprehensionTypes):
             ctx.inner_scope_nodes.append(top)
         else:
+            # generic handler for any expr type
             for field_name in top._fields:
                 if not hasattr(top, field_name):
                     continue
@@ -476,7 +504,7 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
             else:
                 _analyze_expr(top_ctx, top_node.elt)
 
-        else:
+        else:  # pragma: no cover
             raise RuntimeError(f"Invalid scope node type '{type(top_node)}'")
 
         for node in top_ctx.inner_scope_nodes:
@@ -492,14 +520,3 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
 
     assert isinstance(root_ctx.result, ScopeGlobal)
     return root_ctx.result
-
-
-if __name__ == "__main__":
-    import ast
-
-    code = """
-def a():
-    print(b)
-    [b:=2 for _ in range(10)]
-"""
-    scope = analyze_scopes(ast.parse(code))
