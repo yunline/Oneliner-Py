@@ -238,7 +238,7 @@ def a():
     assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
     assert c_scope.symbols["b"] == SymbolTypeFlags.FREE
     assert isinstance(c_scope, ScopeFunction)
-    assert c_scope.nonlocal_reference_dict["b"].node.name == "a"
+    assert c_scope.nonlocal_reference_dict["b"] is a_scope
 
 
 def test_nonlocal_symol_analysis():
@@ -254,7 +254,7 @@ def a():
     assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
     assert c_scope.symbols["b"] == SymbolTypeFlags.NONLOCAL_DST
     assert isinstance(c_scope, ScopeFunction)
-    assert c_scope.nonlocal_reference_dict["b"].node.name == "a"
+    assert c_scope.nonlocal_reference_dict["b"] is a_scope
 
 
 def test_function_parameter():
@@ -379,7 +379,7 @@ def test_nested_comprehension_reference_target():
     assert comp2_scope.symbols["j"] & SymbolTypeFlags.COMPREHENSION_TARGET
     assert comp2_scope.symbols["i"] & SymbolTypeFlags.COMPREHENSION_REFERENCE
     assert isinstance(comp2_scope, ScopeComprehensions)
-    assert comp2_scope.reference_dict["i"] is comp1_scope
+    assert comp2_scope.comprehension_reference_dict["i"] is comp1_scope
 
 
 def test_nested_comprehension_reference_outer_scope_symbool():
@@ -394,7 +394,7 @@ def a():
     comp2_scope = comp1_scope.inner_scopes[0]
     assert comp2_scope.symbols["d"] & SymbolTypeFlags.COMPREHENSION_REFERENCE
     assert isinstance(comp2_scope, ScopeComprehensions)
-    assert comp2_scope.reference_dict["d"] is a_scope
+    assert comp2_scope.comprehension_reference_dict["d"] is a_scope
 
 def test_assign_to_comprehension_target():
     code = "[i:=1 for i in range(10)]"
