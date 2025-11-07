@@ -3,7 +3,6 @@ import typing
 from ast import *
 
 from oneliner.config import Configs
-from oneliner.reserved_identifiers import OL_RUN
 
 
 def unique_id() -> str:
@@ -32,19 +31,35 @@ def list_wrapper(nodes: list[expr]) -> expr:
 
 
 def chain_call_wrapper(nodes: list[expr]) -> expr:
-    runner = NamedExpr(
-        target=Name(id=OL_RUN, ctx=Store()),
+    runner_body = NamedExpr(
+        target=Name(id="_", ctx=Store()),
         value=Lambda(
             args=arguments(
                 posonlyargs=[],
-                args=[arg(arg="_")],
+                args=[arg(arg="__")],
                 kwonlyargs=[],
                 kw_defaults=[],
                 defaults=[],
             ),
-            body=Name(id=OL_RUN, ctx=Load()),
+            body=Name(id="_", ctx=Load()),
         ),
     )
+
+    runner = Call(
+        func=Lambda(
+            args=arguments(
+                posonlyargs=[],
+                args=[],
+                kwonlyargs=[],
+                kw_defaults=[],
+                defaults=[],
+            ),
+            body=runner_body,
+        ),
+        args=[],
+        keywords=[],
+    )
+
     call = Call(
         func=runner,
         args=[nodes[0]],
