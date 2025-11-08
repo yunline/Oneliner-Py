@@ -6,6 +6,7 @@ from ast import *
 
 __all__ = [
     "SymbolTypeFlags",
+    "ScopeAnalysisError",
     "Scope",
     "ScopeGlobal",
     "ScopeFunction",
@@ -27,6 +28,10 @@ class SymbolTypeFlags(enum.Flag):
     COMPREHENSION_TARGET = enum.auto()
     COMPREHENSION_REFERENCE = enum.auto()
     COMPREHENSION_ASSIGNMENT = enum.auto()
+
+
+class ScopeAnalysisError(RuntimeError):
+    pass
 
 
 # comp types (used by type alias)
@@ -183,7 +188,7 @@ def _assign_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
             "assignment expression within a comprehension cannot be used in a class body"
         )
 
-    raise RuntimeError(  # pragma: no cover
+    raise ScopeAnalysisError(  # pragma: no cover
         f"Invalid outer scope '{type(outer.node)}' was found "
         f"when analyzing assignment in comprehension"
     )
@@ -242,13 +247,13 @@ def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
             outer = outer.outer_ctx
             continue
         else:  # pragma: no cover
-            raise RuntimeError(f"Invalid outer scope type {type(outer)}")
+            raise ScopeAnalysisError(f"Invalid outer scope type {type(outer)}")
 
 
 def _reference_symbol_comprehensions_target(
     ctx: AnalysisContext, name: str
 ) -> typing.NoReturn:  # pragma: no cover
-    raise RuntimeError(
+    raise ScopeAnalysisError(
         "Should never reference a symbol when analyzing comprehension target"
     )
 
@@ -291,7 +296,7 @@ def _bind_global_block(ctx: AnalysisContext, name: str) -> None:
         raise SyntaxError(f"name '{name}' is parameter and global")
     if sym & SymbolTypeFlags.NONLOCAL_DST:
         raise SyntaxError(f"name '{name}' is nonlocal and global")
-    raise RuntimeError(f"Unable to declare name '{name}' global")  # pragma: no cover
+    raise ScopeAnalysisError(f"Unable to declare name '{name}' global")  # pragma: no cover
 
 
 def _bind_nonlocal_global(ctx: AnalysisContext, name: str) -> None:
@@ -330,7 +335,7 @@ def _bind_nonlocal_block(ctx: AnalysisContext, name: str) -> None:
             outer = outer.outer_ctx
             continue
 
-        raise RuntimeError(  # pragma: no cover
+        raise ScopeAnalysisError(  # pragma: no cover
             f"Invalid outer scope '{type(outer.node)}' was found "
             f"when searching source of nonlocal"
         )
@@ -396,7 +401,7 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
                 else:
                     ctx.assign_symbol(alias.name)
         else:
-            raise RuntimeError(f"Unsupported statement type '{type(top)}'")
+            raise ScopeAnalysisError(f"Unsupported statement type '{type(top)}'")
 
 
 def _analyze_expr(ctx: AnalysisContext, node: expr) -> None:
@@ -412,7 +417,7 @@ def _analyze_expr(ctx: AnalysisContext, node: expr) -> None:
             elif isinstance(top.ctx, Del):  # pragma: no cover
                 pass
             else:  # pragma: no cover
-                raise RuntimeError("Invalid expr_context of the Name node")
+                raise ScopeAnalysisError("Invalid expr_context of the Name node")
         elif isinstance(top, NamedExpr):
             ctx.assign_symbol(top.target.id)
             stack.append(top.value)
@@ -505,7 +510,11 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
                 _analyze_expr(top_ctx, top_node.elt)
 
         else:  # pragma: no cover
-            raise RuntimeError(f"Invalid scope node type '{type(top_node)}'")
+            raise ScopeAnalysisError(
+                f"Invalid scope node type '{type(top_node)}' "
+                f"Module, FunctionDef, ClassDef, Lambda, ListComp, "
+                f"SetComp, DictComp or GeneratorExp is expected"
+            )
 
         for node in top_ctx.inner_scope_nodes:
             inner = AnalysisContext(node, outer_ctx=top_ctx)
