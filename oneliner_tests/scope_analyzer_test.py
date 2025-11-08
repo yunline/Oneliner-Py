@@ -69,7 +69,6 @@ def test_assign_symbol_by_from_import():
     scope = analyze_scopes(ast.parse(code))
     assert scope.symbols["randint"] == SymbolTypeFlags.GLOBAL
 
-
     code = "from ... import a, b, c as d"
     scope = analyze_scopes(ast.parse(code))
     assert scope.symbols["a"] == SymbolTypeFlags.GLOBAL
@@ -95,6 +94,7 @@ for (a, [b, c], d), e in f:
     assert scope.symbols["c"] == SymbolTypeFlags.GLOBAL
     assert scope.symbols["d"] == SymbolTypeFlags.GLOBAL
     assert scope.symbols["e"] == SymbolTypeFlags.GLOBAL
+
 
 def test_ref_symbol_by_function_decorator():
     code = """
@@ -192,7 +192,7 @@ for i in range(10):
 def a():
     return
 """
-    analyze_scopes(ast.parse(code)) # will not raise any error
+    analyze_scopes(ast.parse(code))  # will not raise any error
 
 
 def test_ref_symbol_by_return():
@@ -275,6 +275,7 @@ def a():
     with pytest.raises(SyntaxError):
         analyze_scopes(tree)
 
+
 def test_declare_global_on_a_parameter():
     code = """
 def a(c):
@@ -321,6 +322,17 @@ def a():
         analyze_scopes(tree)
 
 
+def test_nonlocal_cannot_redeclare_parameter():
+    code = """
+def a():
+    def b(p):
+        nonlocal p
+"""
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError):
+        analyze_scopes(tree)
+
+
 def test_nonlocal_repeat():
     code = """
 def a():
@@ -352,6 +364,7 @@ def q():
     tree = ast.parse(code)
     with pytest.raises(SyntaxError):
         analyze_scopes(tree)
+
 
 def test_nonlocal_in_nested_function():
     code = """
@@ -449,7 +462,7 @@ def a(b, /, c, *, d, e=0):
     assert a_scope.symbols["e"] & SymbolTypeFlags.PARAMETER
 
 
-def test_nonlocal_or_free_from_parameter():
+def test_nonlocal_or_free_from_outer_parameter():
     code = """
 def a(p1, p2):
     def c():
@@ -565,6 +578,7 @@ def a():
     # is not marked as NONLOCAL_SRC
     assert not a_scope.symbols["d"] & SymbolTypeFlags.NONLOCAL_SRC
 
+
 def test_assign_to_comprehension_target():
     code = "[i:=1 for i in range(10)]"
     tree = ast.parse(code)
@@ -621,7 +635,7 @@ def a():
     assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
     assert c_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_DST
     assert comp_scope.symbols["b"] == SymbolTypeFlags.COMPREHENSION_ASSIGNMENT
-    
+
 
 def test_comperhension_assign_inside_class_scope():
     code = """

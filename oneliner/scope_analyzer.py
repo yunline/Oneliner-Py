@@ -209,17 +209,23 @@ def _reference_symbol_function(ctx: AnalysisContext, name: str) -> None:
             ctx.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
             break
 
-        while isinstance(outer.node, ClassDef):
+        if isinstance(outer.node, ClassDef):
             outer = outer.outer_ctx
+            continue
 
-        assert isinstance(outer.node, (FunctionDef, Lambda))
-        if name in outer.symbols:
-            outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
-            ctx.symbols[name] = SymbolTypeFlags.FREE
-            ctx.nonlocal_reference_dict[name] = outer.result
-            break
+        if isinstance(outer.node, (FunctionDef, Lambda)):
+            if name in outer.symbols:
+                outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
+                ctx.symbols[name] = SymbolTypeFlags.FREE
+                ctx.nonlocal_reference_dict[name] = outer.result
+                break
+            outer = outer.outer_ctx
+            continue
 
-        outer = outer.outer_ctx
+        raise ScopeAnalysisError(  # pragma: no cover
+            f"Invalid outer scope '{type(outer.node)}' was found "
+            f"when analyzing reference in function scope"
+        )
 
 
 def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
@@ -230,7 +236,7 @@ def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
     while True:
         if isinstance(outer.node, Module):
             ctx.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
-            return
+            break
         if isinstance(outer.node, FunctionDef):
             if name in outer.symbols and outer.symbols[name] & (
                 SymbolTypeFlags.PARAMETER | SymbolTypeFlags.LOCAL
@@ -239,15 +245,18 @@ def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
                 # we dont mark the referenced symbol as NONLOCAL_SRC
                 ctx.symbols[name] = SymbolTypeFlags.FREE
                 ctx.nonlocal_reference_dict[name] = outer.result
-                return
+                break
             else:
                 outer = outer.outer_ctx
                 continue
         if isinstance(outer.node, ClassDef):
             outer = outer.outer_ctx
             continue
-        else:  # pragma: no cover
-            raise ScopeAnalysisError(f"Invalid outer scope type {type(outer)}")
+
+        raise ScopeAnalysisError(  # pragma: no cover
+            f"Invalid outer scope '{type(outer.node)}' was found "
+            f"when analyzing reference in class scope"
+        )
 
 
 def _reference_symbol_comprehensions_target(
@@ -267,12 +276,9 @@ def _reference_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
     ctx.symbols[name] = SymbolTypeFlags.COMPREHENSION_REFERENCE
     outer = ctx.outer_ctx
     while isinstance(outer.node, ComprehensionTypes):
-        if (
-            name in outer.symbols
-            and outer.symbols[name] & SymbolTypeFlags.COMPREHENSION_TARGET
-        ):
-            ctx.comprehension_reference_dict[name] = outer.result
-            return
+        if name in outer.symbols:
+            if outer.symbols[name] & SymbolTypeFlags.COMPREHENSION_TARGET:
+                break
         outer = outer.outer_ctx
     ctx.comprehension_reference_dict[name] = outer.result
 
@@ -296,7 +302,10 @@ def _bind_global_block(ctx: AnalysisContext, name: str) -> None:
         raise SyntaxError(f"name '{name}' is parameter and global")
     if sym & SymbolTypeFlags.NONLOCAL_DST:
         raise SyntaxError(f"name '{name}' is nonlocal and global")
-    raise ScopeAnalysisError(f"Unable to declare name '{name}' global")  # pragma: no cover
+    raise ScopeAnalysisError(  # pragma: no cover
+        f"Unable to declare symbol '{name}' global. "
+        f"The flags of the symbol are: {ctx.symbols[name]}"
+    )
 
 
 def _bind_nonlocal_global(ctx: AnalysisContext, name: str) -> None:
@@ -314,8 +323,15 @@ def _bind_nonlocal_block(ctx: AnalysisContext, name: str) -> None:
             raise SyntaxError(
                 f"name '{name}' is assigned prior to nonlocal declaration"
             )
-        # todo
-        raise SyntaxError(f"name '{name}' is used to before nonlocal declaration")
+        if sym & SymbolTypeFlags.PARAMETER:
+            raise SyntaxError(f"name '{name}' is parameter and nonlocal")
+        if sym & (SymbolTypeFlags.REFERENCED_GLOBAL | SymbolTypeFlags.FREE):
+            raise SyntaxError(f"name '{name}' is used to before nonlocal declaration")
+
+        raise ScopeAnalysisError(  # pragma: no cover
+            f"Unable to declare symbol '{name}' nonlocal. "
+            f"The flags of the symbol are: {ctx.symbols[name]}"
+        )
 
     outer = ctx.outer_ctx
     while True:
@@ -453,8 +469,6 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
             top_ctx.nonlocal_reference_dict = {}
         elif isinstance(top_node, ComprehensionTypes):
             top_ctx.comprehension_reference_dict = {}
-
-        assert not hasattr(top_ctx, "result")
 
         # analyze
         if isinstance(top_node, Module):
