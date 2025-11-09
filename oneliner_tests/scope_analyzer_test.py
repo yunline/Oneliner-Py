@@ -451,6 +451,142 @@ def a():
     assert c_scope.nonlocal_reference_dict["b"] is a_scope
 
 
+def test_reference_global_can_not_be_referenced_as_free():
+    code = """
+def a():
+    print(b)
+    def c():
+        print(b)
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.REFERENCED_GLOBAL
+    assert c_scope.symbols["b"] == SymbolTypeFlags.REFERENCED_GLOBAL
+
+
+def test_free_grabs_the_nearest_outer_scope():
+    code = """
+def a():
+    b = 0
+    def c():
+        b = 1
+        def d():
+            print(b)
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    d_scope = c_scope.inner_scopes[0]
+    assert isinstance(d_scope, ScopeFunction)
+    assert d_scope.symbols["b"] == SymbolTypeFlags.FREE
+    assert d_scope.nonlocal_reference_dict["b"] is c_scope
+    assert c_scope.symbols["b"] & SymbolTypeFlags.LOCAL
+    assert c_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_free_grabs_the_direct_source():
+    code = """
+def a():
+    b = 0 # direct source
+    def c():
+        nonlocal b # indirect reference
+        def d():
+            print(b)
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    d_scope = c_scope.inner_scopes[0]
+    assert isinstance(d_scope, ScopeFunction)
+    assert d_scope.symbols["b"] == SymbolTypeFlags.FREE
+    assert d_scope.nonlocal_reference_dict["b"] is a_scope
+    assert c_scope.symbols["b"] == SymbolTypeFlags.NONLOCAL_DST
+    assert a_scope.symbols["b"] & SymbolTypeFlags.LOCAL
+    assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+
+    code = """
+def a():
+    b = 0 # direct source
+    def c():
+        print(b) # indirect reference
+        def d():
+            print(b)
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    d_scope = c_scope.inner_scopes[0]
+    assert isinstance(d_scope, ScopeFunction)
+    assert d_scope.symbols["b"] == SymbolTypeFlags.FREE
+    assert d_scope.nonlocal_reference_dict["b"] is a_scope
+    assert c_scope.symbols["b"] == SymbolTypeFlags.FREE
+    assert a_scope.symbols["b"] & SymbolTypeFlags.LOCAL
+    assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+
+
+def test_nonlocal_grabs_the_nearest_outer_scope():
+    code = """
+def a():
+    b = 0
+    def c():
+        b = 1
+        def d():
+            nonlocal b
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    d_scope = c_scope.inner_scopes[0]
+    assert isinstance(d_scope, ScopeFunction)
+    assert d_scope.symbols["b"] == SymbolTypeFlags.NONLOCAL_DST
+    assert d_scope.nonlocal_reference_dict["b"] is c_scope
+    assert c_scope.symbols["b"] & SymbolTypeFlags.LOCAL
+    assert c_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_nonlocal_grabs_the_direct_source():
+    code = """
+def a():
+    b = 0 # direct source
+    def c():
+        nonlocal b # indirect reference
+        def d():
+            nonlocal b
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    d_scope = c_scope.inner_scopes[0]
+    assert isinstance(d_scope, ScopeFunction)
+    assert d_scope.symbols["b"] == SymbolTypeFlags.NONLOCAL_DST
+    assert d_scope.nonlocal_reference_dict["b"] is a_scope
+    assert c_scope.symbols["b"] == SymbolTypeFlags.NONLOCAL_DST
+    assert a_scope.symbols["b"] & SymbolTypeFlags.LOCAL
+    assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+
+    code = """
+def a():
+    b = 0 # direct source
+    def c():
+        print(b) # indirect reference
+        def d():
+            nonlocal b
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    d_scope = c_scope.inner_scopes[0]
+    assert isinstance(d_scope, ScopeFunction)
+    assert d_scope.symbols["b"] == SymbolTypeFlags.NONLOCAL_DST
+    assert d_scope.nonlocal_reference_dict["b"] is a_scope
+    assert c_scope.symbols["b"] == SymbolTypeFlags.FREE
+    assert a_scope.symbols["b"] & SymbolTypeFlags.LOCAL
+    assert a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+
+
 def test_function_parameter():
     code = """
 def a(b, /, c, *args, d, e=0, **kw):

@@ -256,7 +256,9 @@ def reference_symbol_local(ctx: AnalysisContext, name: str, node: stmt | expr) -
         if isinstance(outer.node, (FunctionDef, Lambda)):
             if name in outer.symbols:
                 if not outer.symbols[name] & (
-                    SymbolTypeFlags.REFERENCED_GLOBAL | SymbolTypeFlags.FREE
+                    SymbolTypeFlags.REFERENCED_GLOBAL
+                    | SymbolTypeFlags.FREE
+                    | SymbolTypeFlags.NONLOCAL_DST
                 ):
                     ctx.symbols[name] = SymbolTypeFlags.FREE
                     ctx.nonlocal_reference_dict[name] = outer
@@ -373,9 +375,14 @@ def bind_nonlocal_local(ctx: AnalysisContext, name: str, node: stmt | expr) -> N
 
         if isinstance(outer.node, FunctionDef):
             if name in outer.symbols:
-                ctx.symbols[name] = SymbolTypeFlags.NONLOCAL_DST
-                ctx.nonlocal_reference_dict[name] = outer
-                break
+                if not outer.symbols[name] & (
+                    SymbolTypeFlags.REFERENCED_GLOBAL
+                    | SymbolTypeFlags.FREE
+                    | SymbolTypeFlags.NONLOCAL_DST
+                ):
+                    ctx.symbols[name] = SymbolTypeFlags.NONLOCAL_DST
+                    ctx.nonlocal_reference_dict[name] = outer
+                    break
             outer = outer.outer_ctx
             continue
 
