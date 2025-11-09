@@ -95,8 +95,8 @@ class AnalysisContext:
     outer_ctx: "AnalysisContext"
     inner_ctx: list["AnalysisContext"]
     symbols: dict[str, SymbolTypeFlags]
-    nonlocal_reference_dict: dict[str, Scope]
-    comprehension_reference_dict: dict[str, Scope]
+    nonlocal_reference_dict: dict[str, "AnalysisContext"]
+    comprehension_reference_dict: dict[str, "AnalysisContext"]
 
     _assign_symbol: SymbolHandler
     _reference_symbol: SymbolHandler
@@ -137,10 +137,23 @@ def generate_result_scope(ctx: AnalysisContext) -> None:
 
     if isinstance(ctx.result, (ScopeFunction, ScopeClass, ScopeLambda)):
         ctx.result.outer_scope = ctx.outer_ctx.result
-        ctx.result.nonlocal_reference_dict = ctx.nonlocal_reference_dict
+        ctx.result.nonlocal_reference_dict = {}
+        for name, referenced_ctx in ctx.nonlocal_reference_dict.items():
+            ctx.result.nonlocal_reference_dict[name] = referenced_ctx.result
+
+            # set NONLOCAL_SRC flags
+            if isinstance(ctx.result, (ScopeFunction, ScopeLambda)):
+                referenced_ctx.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
+
+            elif isinstance(ctx.result, (ScopeClass)):
+                if ctx.symbols[name] == SymbolTypeFlags.NONLOCAL_DST:
+                    referenced_ctx.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
+
     if isinstance(ctx.result, ScopeComprehensions):
         ctx.result.outer_scope = ctx.outer_ctx.result
-        ctx.result.comprehension_reference_dict = ctx.comprehension_reference_dict
+        ctx.result.comprehension_reference_dict = {
+            k: v.result for k, v in ctx.comprehension_reference_dict.items()
+        }
 
 
 def register_function_args(ctx: AnalysisContext, args: arguments):
@@ -157,14 +170,26 @@ def assign_symbol_global(ctx: AnalysisContext, name: str, node: stmt | expr):
 
 
 def assign_symbol_function(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
-    if name in ctx.symbols and ctx.symbols[name] != SymbolTypeFlags.REFERENCED_GLOBAL:
-        return
+    if name in ctx.symbols:
+        if ctx.symbols[name] == SymbolTypeFlags.REFERENCED_GLOBAL:
+            pass
+        elif ctx.symbols[name] == SymbolTypeFlags.FREE:
+            del ctx.nonlocal_reference_dict[name]
+        else:
+            return
+
     ctx.symbols[name] = SymbolTypeFlags.LOCAL
 
 
 def assign_symbol_class(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols:
-        return
+        if ctx.symbols[name] == SymbolTypeFlags.REFERENCED_GLOBAL:
+            pass
+        elif ctx.symbols[name] == SymbolTypeFlags.FREE:
+            del ctx.nonlocal_reference_dict[name]
+        else:
+            return
+
     ctx.symbols[name] = SymbolTypeFlags.LOCAL
 
 
@@ -189,7 +214,7 @@ def assign_symbol_comprehensions(
             )
         outer = outer.outer_ctx
 
-    ctx.comprehension_reference_dict[name] = outer.result
+    ctx.comprehension_reference_dict[name] = outer
 
     if isinstance(outer.node, Module):
         ctx.symbols[name] = SymbolTypeFlags.COMPREHENSION_ASSIGNMENT
@@ -239,9 +264,8 @@ def reference_symbol_function(
 
         if isinstance(outer.node, (FunctionDef, Lambda)):
             if name in outer.symbols:
-                outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
                 ctx.symbols[name] = SymbolTypeFlags.FREE
-                ctx.nonlocal_reference_dict[name] = outer.result
+                ctx.nonlocal_reference_dict[name] = outer
                 break
             outer = outer.outer_ctx
             continue
@@ -265,10 +289,8 @@ def reference_symbol_class(ctx: AnalysisContext, name: str, node: stmt | expr) -
             if name in outer.symbols and outer.symbols[name] & (
                 SymbolTypeFlags.PARAMETER | SymbolTypeFlags.LOCAL
             ):
-                # since class scope is disposable,
-                # we dont mark the referenced symbol as NONLOCAL_SRC
                 ctx.symbols[name] = SymbolTypeFlags.FREE
-                ctx.nonlocal_reference_dict[name] = outer.result
+                ctx.nonlocal_reference_dict[name] = outer
                 break
             else:
                 outer = outer.outer_ctx
@@ -289,8 +311,6 @@ def reference_symbol_comprehensions(
     if name in ctx.symbols:
         return
 
-    # since comprehension scope is disposable,
-    # we dont mark the referenced symbol as NONLOCAL_SRC
     ctx.symbols[name] = SymbolTypeFlags.COMPREHENSION_REFERENCE
     outer = ctx.outer_ctx
     while isinstance(outer.node, ComprehensionTypes):
@@ -298,7 +318,7 @@ def reference_symbol_comprehensions(
             if outer.symbols[name] & SymbolTypeFlags.COMPREHENSION_TARGET:
                 break
         outer = outer.outer_ctx
-    ctx.comprehension_reference_dict[name] = outer.result
+    ctx.comprehension_reference_dict[name] = outer
 
 
 def bind_global_global(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
@@ -388,9 +408,8 @@ def bind_nonlocal_block(ctx: AnalysisContext, name: str, node: stmt | expr) -> N
 
         if isinstance(outer.node, FunctionDef):
             if name in outer.symbols:
-                outer.symbols[name] |= SymbolTypeFlags.NONLOCAL_SRC
                 ctx.symbols[name] = SymbolTypeFlags.NONLOCAL_DST
-                ctx.nonlocal_reference_dict[name] = outer.result
+                ctx.nonlocal_reference_dict[name] = outer
                 break
             outer = outer.outer_ctx
             continue

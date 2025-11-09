@@ -394,7 +394,7 @@ def c():
     assert scope.inner_scopes[0].symbols["print"] == SymbolTypeFlags.REFERENCED_GLOBAL
 
 
-def test_assign_overwrites_symbol_type():
+def test_function_local_overwrite_referenced_global():
     code = """
 def c():
     print(b)
@@ -402,6 +402,21 @@ def c():
 """
     scope = analyze_scopes(ast.parse(code))
     assert scope.inner_scopes[0].symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_function_local_overwrite_free():
+    code = """
+def a():
+    b = 0
+    def c():
+        print(b)
+        b = 2
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+    assert c_scope.symbols["b"] == SymbolTypeFlags.LOCAL
 
 
 def test_free_symol_analysis():
@@ -537,6 +552,25 @@ def test_parameters_in_lambda():
     assert a_scope.symbols["c"] & SymbolTypeFlags.PARAMETER
     assert a_scope.symbols["d"] & SymbolTypeFlags.PARAMETER
     assert a_scope.symbols["e"] & SymbolTypeFlags.PARAMETER
+
+
+def test_lambda_local_overwrite_referenced_global():
+    code = "lambda:[print(b), b:=0]"
+    scope = analyze_scopes(ast.parse(code))
+    assert scope.inner_scopes[0].symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_lambda_local_overwrite_free():
+    code = """
+def a():
+    b = 0
+    lambda:[print(b), b:=0]
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+    assert c_scope.symbols["b"] == SymbolTypeFlags.LOCAL
 
 
 def test_assign_in_comprehension_in_global():
@@ -776,6 +810,31 @@ def a():
 
     # is not marked as NONLOCAL_SRC
     assert not a_scope.symbols["b"] & SymbolTypeFlags.NONLOCAL_SRC
+
+
+def test_class_local_overwrite_referenced_global():
+    code = """
+class A():
+    print(b)
+    b = b+1
+"""
+    scope = analyze_scopes(ast.parse(code))
+    assert scope.inner_scopes[0].symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_class_local_overwrite_free():
+    code = """
+def a():
+    b = 0
+    class C:
+        print(b)
+        b = 2
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+    assert c_scope.symbols["b"] == SymbolTypeFlags.LOCAL
 
 
 def test_nonlocal_skip_over_class_scope():
