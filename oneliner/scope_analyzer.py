@@ -259,14 +259,6 @@ def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
         )
 
 
-def _reference_symbol_comprehensions_target(
-    ctx: AnalysisContext, name: str
-) -> typing.NoReturn:  # pragma: no cover
-    raise ScopeAnalysisError(
-        "Should never reference a symbol when analyzing comprehension target"
-    )
-
-
 def _reference_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
     if name in ctx.symbols:
         return
@@ -507,7 +499,6 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
             top_ctx.result = ScopeComprehensions()
 
             top_ctx._assign_symbol = _assign_symbol_comprehensions_target
-            top_ctx._reference_symbol = _reference_symbol_comprehensions_target
             for gen in top_node.generators:
                 _analyze_expr(top_ctx, gen.target)
 
