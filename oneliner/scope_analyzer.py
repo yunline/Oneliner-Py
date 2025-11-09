@@ -73,6 +73,22 @@ class ScopeClass(Scope[ClassDef]):
     nonlocal_reference_dict: dict[str, Scope]
 
 
+def get_ast_node_location_info(node: stmt | expr):
+    return (
+        None,  # filename, leave it None
+        node.lineno,
+        node.col_offset,
+        None,  # text, leave it None
+        node.end_lineno,
+        node.end_col_offset,
+    )
+
+
+SymbolHandler: typing.TypeAlias = typing.Callable[
+    ["AnalysisContext", str, stmt | expr], None
+]
+
+
 class AnalysisContext:
     node: Module | FunctionDef | ClassDef | Lambda | _Comprehensions
     inner_scope_nodes: list[FunctionDef | ClassDef | Lambda | _Comprehensions]
@@ -82,10 +98,10 @@ class AnalysisContext:
     nonlocal_reference_dict: dict[str, Scope]
     comprehension_reference_dict: dict[str, Scope]
 
-    _assign_symbol: typing.Callable[["AnalysisContext", str], None]
-    _reference_symbol: typing.Callable[["AnalysisContext", str], None]
-    _bind_global: typing.Callable[["AnalysisContext", str], None]
-    _bind_nonlocal: typing.Callable[["AnalysisContext", str], None]
+    _assign_symbol: SymbolHandler
+    _reference_symbol: SymbolHandler
+    _bind_global: SymbolHandler
+    _bind_nonlocal: SymbolHandler
 
     result: Scope
 
@@ -101,17 +117,17 @@ class AnalysisContext:
         self.inner_ctx = []
         self.symbols = {}
 
-    def assign_symbol(self, name: str) -> None:
-        self._assign_symbol(self, name)
+    def assign_symbol(self, name: str, node: stmt | expr) -> None:
+        self._assign_symbol(self, name, node)
 
-    def reference_symbol(self, name: str) -> None:
-        self._reference_symbol(self, name)
+    def reference_symbol(self, name: str, node: stmt | expr) -> None:
+        self._reference_symbol(self, name, node)
 
-    def bind_global(self, name: str) -> None:
-        self._bind_global(self, name)
+    def bind_global(self, name: str, node: stmt | expr) -> None:
+        self._bind_global(self, name, node)
 
-    def bind_nonlocal(self, name: str) -> None:
-        self._bind_nonlocal(self, name)
+    def bind_nonlocal(self, name: str, node: stmt | expr) -> None:
+        self._bind_nonlocal(self, name, node)
 
 
 def _generate_result_scope(ctx: AnalysisContext) -> None:
@@ -136,27 +152,31 @@ def _register_function_args(ctx: AnalysisContext, args: arguments):
         ctx.symbols[args.kwarg.arg] = SymbolTypeFlags.PARAMETER
 
 
-def _assign_symbol_global(ctx: AnalysisContext, name: str):
+def assign_symbol_global(ctx: AnalysisContext, name: str, node: stmt | expr):
     ctx.symbols[name] = SymbolTypeFlags.GLOBAL
 
 
-def _assign_symbol_function(ctx: AnalysisContext, name: str) -> None:
+def assign_symbol_function(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols and ctx.symbols[name] != SymbolTypeFlags.REFERENCED_GLOBAL:
         return
     ctx.symbols[name] = SymbolTypeFlags.LOCAL
 
 
-def _assign_symbol_class(ctx: AnalysisContext, name: str) -> None:
+def assign_symbol_class(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols:
         return
     ctx.symbols[name] = SymbolTypeFlags.LOCAL
 
 
-def _assign_symbol_comprehensions_target(ctx: AnalysisContext, name: str) -> None:
+def assign_symbol_comprehensions_target(
+    ctx: AnalysisContext, name: str, node: stmt | expr
+) -> None:
     ctx.symbols[name] = SymbolTypeFlags.COMPREHENSION_TARGET
 
 
-def _assign_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
+def assign_symbol_comprehensions(
+    ctx: AnalysisContext, name: str, node: stmt | expr
+) -> None:
     outer = ctx
     while isinstance(outer.node, ComprehensionTypes):
         if (
@@ -164,7 +184,8 @@ def _assign_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
             and outer.symbols[name] & SymbolTypeFlags.COMPREHENSION_TARGET
         ):
             raise SyntaxError(
-                f"assignment expression cannot rebind comprehension iteration variable '{name}'"
+                f"assignment expression cannot rebind comprehension iteration variable '{name}'",
+                get_ast_node_location_info(node),
             )
         outer = outer.outer_ctx
 
@@ -185,7 +206,8 @@ def _assign_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
 
     if isinstance(outer.node, ClassDef):
         raise SyntaxError(
-            "assignment expression within a comprehension cannot be used in a class body"
+            "assignment expression within a comprehension cannot be used in a class body",
+            get_ast_node_location_info(node),
         )
 
     raise ScopeAnalysisError(  # pragma: no cover
@@ -194,12 +216,14 @@ def _assign_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
     )
 
 
-def _reference_symbol_global(ctx: AnalysisContext, name: str) -> None:
+def reference_symbol_global(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name not in ctx.symbols:
         ctx.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
 
 
-def _reference_symbol_function(ctx: AnalysisContext, name: str) -> None:
+def reference_symbol_function(
+    ctx: AnalysisContext, name: str, node: stmt | expr
+) -> None:
     if name in ctx.symbols:
         return
 
@@ -228,7 +252,7 @@ def _reference_symbol_function(ctx: AnalysisContext, name: str) -> None:
         )
 
 
-def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
+def reference_symbol_class(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols:
         return
 
@@ -259,7 +283,9 @@ def _reference_symbol_class(ctx: AnalysisContext, name: str) -> None:
         )
 
 
-def _reference_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
+def reference_symbol_comprehensions(
+    ctx: AnalysisContext, name: str, node: stmt | expr
+) -> None:
     if name in ctx.symbols:
         return
 
@@ -275,11 +301,11 @@ def _reference_symbol_comprehensions(ctx: AnalysisContext, name: str) -> None:
     ctx.comprehension_reference_dict[name] = outer.result
 
 
-def _bind_global_global(ctx: AnalysisContext, name: str) -> None:
+def bind_global_global(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     pass
 
 
-def _bind_global_block(ctx: AnalysisContext, name: str) -> None:
+def bind_global_block(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name not in ctx.symbols:
         ctx.symbols[name] = SymbolTypeFlags.GLOBAL
         return
@@ -287,38 +313,64 @@ def _bind_global_block(ctx: AnalysisContext, name: str) -> None:
     if sym & SymbolTypeFlags.GLOBAL:
         return
     if sym & SymbolTypeFlags.LOCAL:
-        raise SyntaxError(f"name '{name}' is assigned to before global declaration")
+        raise SyntaxError(
+            f"name '{name}' is assigned to before global declaration",
+            get_ast_node_location_info(node),
+        )
     if sym & (SymbolTypeFlags.REFERENCED_GLOBAL | SymbolTypeFlags.FREE):
-        raise SyntaxError(f"name '{name}' is used prior to global declaration")
+        raise SyntaxError(
+            f"name '{name}' is used prior to global declaration",
+            get_ast_node_location_info(node),
+        )
     if sym & SymbolTypeFlags.PARAMETER:
-        raise SyntaxError(f"name '{name}' is parameter and global")
+        raise SyntaxError(
+            f"name '{name}' is parameter and global",
+            get_ast_node_location_info(node),
+        )
     if sym & SymbolTypeFlags.NONLOCAL_DST:
-        raise SyntaxError(f"name '{name}' is nonlocal and global")
+        raise SyntaxError(
+            f"name '{name}' is nonlocal and global",
+            get_ast_node_location_info(node),
+        )
+
     raise ScopeAnalysisError(  # pragma: no cover
         f"Unable to declare symbol '{name}' global. "
         f"The flags of the symbol are: {ctx.symbols[name]}"
     )
 
 
-def _bind_nonlocal_global(ctx: AnalysisContext, name: str) -> None:
-    raise SyntaxError("nonlocal declaration not allowed at module level")
+def bind_nonlocal_global(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
+    raise SyntaxError(
+        "nonlocal declaration not allowed at module level",
+        get_ast_node_location_info(node),
+    )
 
 
-def _bind_nonlocal_block(ctx: AnalysisContext, name: str) -> None:
+def bind_nonlocal_block(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols:
         sym = ctx.symbols[name]
         if sym & SymbolTypeFlags.NONLOCAL_DST:
             return
         if sym & SymbolTypeFlags.GLOBAL:
-            raise SyntaxError(f"name '{name}' is nonlocal and global")
+            raise SyntaxError(
+                f"name '{name}' is nonlocal and global",
+                get_ast_node_location_info(node),
+            )
         if sym & SymbolTypeFlags.LOCAL:
             raise SyntaxError(
-                f"name '{name}' is assigned prior to nonlocal declaration"
+                f"name '{name}' is assigned prior to nonlocal declaration",
+                get_ast_node_location_info(node),
             )
         if sym & SymbolTypeFlags.PARAMETER:
-            raise SyntaxError(f"name '{name}' is parameter and nonlocal")
+            raise SyntaxError(
+                f"name '{name}' is parameter and nonlocal",
+                get_ast_node_location_info(node),
+            )
         if sym & (SymbolTypeFlags.REFERENCED_GLOBAL | SymbolTypeFlags.FREE):
-            raise SyntaxError(f"name '{name}' is used to before nonlocal declaration")
+            raise SyntaxError(
+                f"name '{name}' is used to before nonlocal declaration",
+                get_ast_node_location_info(node),
+            )
 
         raise ScopeAnalysisError(  # pragma: no cover
             f"Unable to declare symbol '{name}' nonlocal. "
@@ -356,7 +408,7 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
         top = stack.pop()
         if isinstance(top, FunctionDef):
             ctx.inner_scope_nodes.append(top)
-            ctx.assign_symbol(top.name)
+            ctx.assign_symbol(top.name, top)
             for deco in top.decorator_list:
                 _analyze_expr(ctx, deco)
             for default in top.args.defaults:
@@ -366,7 +418,7 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
                     _analyze_expr(ctx, kw_default)
         elif isinstance(top, ClassDef):
             ctx.inner_scope_nodes.append(top)
-            ctx.assign_symbol(top.name)
+            ctx.assign_symbol(top.name, top)
             for deco in top.decorator_list:
                 _analyze_expr(ctx, deco)
             for base in top.bases:
@@ -398,16 +450,16 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
                 _analyze_expr(ctx, target)
         elif isinstance(top, Global):
             for name in top.names:
-                ctx.bind_global(name)
+                ctx.bind_global(name, top)
         elif isinstance(top, Nonlocal):
             for name in top.names:
-                ctx.bind_nonlocal(name)
+                ctx.bind_nonlocal(name, top)
         elif isinstance(top, (Import, ImportFrom)):
             for alias in top.names:
                 if alias.asname:
-                    ctx.assign_symbol(alias.asname)
+                    ctx.assign_symbol(alias.asname, top)
                 else:
-                    ctx.assign_symbol(alias.name)
+                    ctx.assign_symbol(alias.name, top)
         else:
             raise ScopeAnalysisError(f"Unsupported statement type '{type(top)}'")
 
@@ -419,15 +471,15 @@ def _analyze_expr(ctx: AnalysisContext, node: expr) -> None:
         top = stack.pop()
         if isinstance(top, Name):
             if isinstance(top.ctx, Load):
-                ctx.reference_symbol(top.id)
+                ctx.reference_symbol(top.id, top)
             elif isinstance(top.ctx, Store):
-                ctx.assign_symbol(top.id)
+                ctx.assign_symbol(top.id, top)
             elif isinstance(top.ctx, Del):  # pragma: no cover
                 pass
             else:  # pragma: no cover
                 raise ScopeAnalysisError("Invalid expr_context of the Name node")
         elif isinstance(top, NamedExpr):
-            ctx.assign_symbol(top.target.id)
+            ctx.assign_symbol(top.target.id, top)
             stack.append(top.value)
         elif isinstance(top, Lambda):
             stack.extend(top.args.defaults)
@@ -465,45 +517,45 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
         # analyze
         if isinstance(top_node, Module):
             top_ctx.result = ScopeGlobal()
-            top_ctx._assign_symbol = _assign_symbol_global
-            top_ctx._reference_symbol = _reference_symbol_global
-            top_ctx._bind_global = _bind_global_global
-            top_ctx._bind_nonlocal = _bind_nonlocal_global
+            top_ctx._assign_symbol = assign_symbol_global
+            top_ctx._reference_symbol = reference_symbol_global
+            top_ctx._bind_global = bind_global_global
+            top_ctx._bind_nonlocal = bind_nonlocal_global
             _analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, FunctionDef):
             top_ctx.result = ScopeFunction()
-            top_ctx._assign_symbol = _assign_symbol_function
-            top_ctx._reference_symbol = _reference_symbol_function
-            top_ctx._bind_global = _bind_global_block
-            top_ctx._bind_nonlocal = _bind_nonlocal_block
+            top_ctx._assign_symbol = assign_symbol_function
+            top_ctx._reference_symbol = reference_symbol_function
+            top_ctx._bind_global = bind_global_block
+            top_ctx._bind_nonlocal = bind_nonlocal_block
             _register_function_args(top_ctx, top_node.args)
             _analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, ClassDef):
             top_ctx.result = ScopeClass()
-            top_ctx._assign_symbol = _assign_symbol_class
-            top_ctx._reference_symbol = _reference_symbol_class
-            top_ctx._bind_global = _bind_global_block
-            top_ctx._bind_nonlocal = _bind_nonlocal_block
+            top_ctx._assign_symbol = assign_symbol_class
+            top_ctx._reference_symbol = reference_symbol_class
+            top_ctx._bind_global = bind_global_block
+            top_ctx._bind_nonlocal = bind_nonlocal_block
             _analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, Lambda):
             top_ctx.result = ScopeLambda()
-            top_ctx._assign_symbol = _assign_symbol_function
-            top_ctx._reference_symbol = _reference_symbol_function
+            top_ctx._assign_symbol = assign_symbol_function
+            top_ctx._reference_symbol = reference_symbol_function
             _register_function_args(top_ctx, top_node.args)
             _analyze_expr(top_ctx, top_node.body)
 
         elif isinstance(top_node, ComprehensionTypes):
             top_ctx.result = ScopeComprehensions()
 
-            top_ctx._assign_symbol = _assign_symbol_comprehensions_target
+            top_ctx._assign_symbol = assign_symbol_comprehensions_target
             for gen in top_node.generators:
                 _analyze_expr(top_ctx, gen.target)
 
-            top_ctx._assign_symbol = _assign_symbol_comprehensions
-            top_ctx._reference_symbol = _reference_symbol_comprehensions
+            top_ctx._assign_symbol = assign_symbol_comprehensions
+            top_ctx._reference_symbol = reference_symbol_comprehensions
             for gen in top_node.generators:
                 _analyze_expr(top_ctx, gen.iter)
                 for _if in gen.ifs:

@@ -864,3 +864,15 @@ class A():
     a_scope = scope.inner_scopes[0]
     assert a_scope.symbols["print"] == SymbolTypeFlags.REFERENCED_GLOBAL
     assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_syntax_error_linno_and_offset():
+    code = "\n\nnonlocal a"
+    tree = ast.parse(code)
+    with pytest.raises(SyntaxError) as exc_info:
+        analyze_scopes(tree)
+    err = exc_info.value
+    assert err.lineno == 3
+    assert err.offset == 0
+    assert err.end_lineno == 3
+    assert err.end_offset == 10
