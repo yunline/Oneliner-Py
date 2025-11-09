@@ -35,12 +35,12 @@ class ScopeAnalysisError(RuntimeError):
 
 
 # comp types (used by type alias)
-_Comprehensions: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
+Comprehensions: typing.TypeAlias = ListComp | SetComp | DictComp | GeneratorExp
 
 # comp types (used by isinstance)
 ComprehensionTypes = (ListComp, SetComp, DictComp, GeneratorExp)
 
-T = typing.TypeVar("T", Module, FunctionDef, ClassDef, Lambda, _Comprehensions)
+T = typing.TypeVar("T", Module, FunctionDef, ClassDef, Lambda, Comprehensions)
 
 
 class Scope(typing.Generic[T]):
@@ -63,7 +63,7 @@ class ScopeLambda(Scope[Lambda]):
     nonlocal_reference_dict: dict[str, Scope]
 
 
-class ScopeComprehensions(Scope[_Comprehensions]):
+class ScopeComprehensions(Scope[Comprehensions]):
     outer_scope: Scope
     comprehension_reference_dict: dict[str, Scope]
 
@@ -90,8 +90,8 @@ SymbolHandler: typing.TypeAlias = typing.Callable[
 
 
 class AnalysisContext:
-    node: Module | FunctionDef | ClassDef | Lambda | _Comprehensions
-    inner_scope_nodes: list[FunctionDef | ClassDef | Lambda | _Comprehensions]
+    node: Module | FunctionDef | ClassDef | Lambda | Comprehensions
+    inner_scope_nodes: list[FunctionDef | ClassDef | Lambda | Comprehensions]
     outer_ctx: "AnalysisContext"
     inner_ctx: list["AnalysisContext"]
     symbols: dict[str, SymbolTypeFlags]
@@ -107,7 +107,7 @@ class AnalysisContext:
 
     def __init__(
         self,
-        node: Module | FunctionDef | ClassDef | Lambda | _Comprehensions,
+        node: Module | FunctionDef | ClassDef | Lambda | Comprehensions,
         outer_ctx: "AnalysisContext|None" = None,
     ) -> None:
         self.node = node
@@ -130,7 +130,7 @@ class AnalysisContext:
         self._bind_nonlocal(self, name, node)
 
 
-def _generate_result_scope(ctx: AnalysisContext) -> None:
+def generate_result_scope(ctx: AnalysisContext) -> None:
     ctx.result.node = ctx.node
     ctx.result.symbols = ctx.symbols
     ctx.result.inner_scopes = [inner.result for inner in ctx.inner_ctx]
@@ -143,7 +143,7 @@ def _generate_result_scope(ctx: AnalysisContext) -> None:
         ctx.result.comprehension_reference_dict = ctx.comprehension_reference_dict
 
 
-def _register_function_args(ctx: AnalysisContext, args: arguments):
+def register_function_args(ctx: AnalysisContext, args: arguments):
     for arg in itertools.chain(args.posonlyargs, args.args, args.kwonlyargs):
         ctx.symbols[arg.arg] = SymbolTypeFlags.PARAMETER
     if args.vararg is not None:
@@ -401,7 +401,7 @@ def bind_nonlocal_block(ctx: AnalysisContext, name: str, node: stmt | expr) -> N
         )
 
 
-def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) -> None:
+def analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) -> None:
     stack: list[stmt] = list(reversed(node.body))
 
     while stack:
@@ -410,44 +410,44 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
             ctx.inner_scope_nodes.append(top)
             ctx.assign_symbol(top.name, top)
             for deco in top.decorator_list:
-                _analyze_expr(ctx, deco)
+                analyze_expr(ctx, deco)
             for default in top.args.defaults:
-                _analyze_expr(ctx, default)
+                analyze_expr(ctx, default)
             for kw_default in top.args.kw_defaults:
                 if kw_default is not None:
-                    _analyze_expr(ctx, kw_default)
+                    analyze_expr(ctx, kw_default)
         elif isinstance(top, ClassDef):
             ctx.inner_scope_nodes.append(top)
             ctx.assign_symbol(top.name, top)
             for deco in top.decorator_list:
-                _analyze_expr(ctx, deco)
+                analyze_expr(ctx, deco)
             for base in top.bases:
-                _analyze_expr(ctx, base)
+                analyze_expr(ctx, base)
             for kw in top.keywords:
-                _analyze_expr(ctx, kw.value)
+                analyze_expr(ctx, kw.value)
         elif isinstance(top, Expr):
-            _analyze_expr(ctx, top.value)
+            analyze_expr(ctx, top.value)
         elif isinstance(top, (If, While)):
-            _analyze_expr(ctx, top.test)
+            analyze_expr(ctx, top.test)
             stack.extend(reversed(top.body))
             stack.extend(reversed(top.orelse))
         elif isinstance(top, For):
-            _analyze_expr(ctx, top.target)
-            _analyze_expr(ctx, top.iter)
+            analyze_expr(ctx, top.target)
+            analyze_expr(ctx, top.iter)
             stack.extend(reversed(top.body))
             stack.extend(reversed(top.orelse))
         elif isinstance(top, (Break, Continue, Pass)):
             pass
         elif isinstance(top, Return):
             if top.value is not None:
-                _analyze_expr(ctx, top.value)
+                analyze_expr(ctx, top.value)
         elif isinstance(top, (AugAssign, AnnAssign)) and top.value is not None:
-            _analyze_expr(ctx, top.target)
-            _analyze_expr(ctx, top.value)
+            analyze_expr(ctx, top.target)
+            analyze_expr(ctx, top.value)
         elif isinstance(top, Assign):
-            _analyze_expr(ctx, top.value)
+            analyze_expr(ctx, top.value)
             for target in top.targets:
-                _analyze_expr(ctx, target)
+                analyze_expr(ctx, target)
         elif isinstance(top, Global):
             for name in top.names:
                 ctx.bind_global(name, top)
@@ -464,7 +464,7 @@ def _analyze_block(ctx: AnalysisContext, node: Module | FunctionDef | ClassDef) 
             raise ScopeAnalysisError(f"Unsupported statement type '{type(top)}'")
 
 
-def _analyze_expr(ctx: AnalysisContext, node: expr) -> None:
+def analyze_expr(ctx: AnalysisContext, node: expr) -> None:
     stack: list[expr] = [node]
 
     while stack:
@@ -521,7 +521,7 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
             top_ctx._reference_symbol = reference_symbol_global
             top_ctx._bind_global = bind_global_global
             top_ctx._bind_nonlocal = bind_nonlocal_global
-            _analyze_block(top_ctx, top_node)
+            analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, FunctionDef):
             top_ctx.result = ScopeFunction()
@@ -529,8 +529,8 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
             top_ctx._reference_symbol = reference_symbol_function
             top_ctx._bind_global = bind_global_block
             top_ctx._bind_nonlocal = bind_nonlocal_block
-            _register_function_args(top_ctx, top_node.args)
-            _analyze_block(top_ctx, top_node)
+            register_function_args(top_ctx, top_node.args)
+            analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, ClassDef):
             top_ctx.result = ScopeClass()
@@ -538,33 +538,33 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
             top_ctx._reference_symbol = reference_symbol_class
             top_ctx._bind_global = bind_global_block
             top_ctx._bind_nonlocal = bind_nonlocal_block
-            _analyze_block(top_ctx, top_node)
+            analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, Lambda):
             top_ctx.result = ScopeLambda()
             top_ctx._assign_symbol = assign_symbol_function
             top_ctx._reference_symbol = reference_symbol_function
-            _register_function_args(top_ctx, top_node.args)
-            _analyze_expr(top_ctx, top_node.body)
+            register_function_args(top_ctx, top_node.args)
+            analyze_expr(top_ctx, top_node.body)
 
         elif isinstance(top_node, ComprehensionTypes):
             top_ctx.result = ScopeComprehensions()
 
             top_ctx._assign_symbol = assign_symbol_comprehensions_target
             for gen in top_node.generators:
-                _analyze_expr(top_ctx, gen.target)
+                analyze_expr(top_ctx, gen.target)
 
             top_ctx._assign_symbol = assign_symbol_comprehensions
             top_ctx._reference_symbol = reference_symbol_comprehensions
             for gen in top_node.generators:
-                _analyze_expr(top_ctx, gen.iter)
+                analyze_expr(top_ctx, gen.iter)
                 for _if in gen.ifs:
-                    _analyze_expr(top_ctx, _if)
+                    analyze_expr(top_ctx, _if)
             if isinstance(top_node, DictComp):
-                _analyze_expr(top_ctx, top_node.key)
-                _analyze_expr(top_ctx, top_node.value)
+                analyze_expr(top_ctx, top_node.key)
+                analyze_expr(top_ctx, top_node.value)
             else:
-                _analyze_expr(top_ctx, top_node.elt)
+                analyze_expr(top_ctx, top_node.elt)
 
         else:  # pragma: no cover
             raise ScopeAnalysisError(
@@ -581,7 +581,7 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
     ctx_stack = [root_ctx]
     while ctx_stack:
         top_ctx = ctx_stack.pop()
-        _generate_result_scope(top_ctx)
+        generate_result_scope(top_ctx)
         ctx_stack.extend(top_ctx.inner_ctx)
 
     assert isinstance(root_ctx.result, ScopeGlobal)
