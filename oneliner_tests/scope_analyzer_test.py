@@ -761,15 +761,7 @@ def test_assign_to_comprehension_target():
         analyze_scopes(tree)
 
 
-def test_comprehension_assign_overwrite_symbol_type():
-    code = """
-def a():
-    print(b)
-"""
-    scope = analyze_scopes(ast.parse(code))
-    a_scope = scope.inner_scopes[0]
-    assert a_scope.symbols["b"] == SymbolTypeFlags.REFERENCED_GLOBAL
-
+def test_comprehension_assign_overwrite_referenced_global():
     code = """
 def a():
     print(b)
@@ -778,6 +770,21 @@ def a():
     scope = analyze_scopes(ast.parse(code))
     a_scope = scope.inner_scopes[0]
     assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+
+
+def test_comprehension_assign_overwrite_free():
+    code = """
+def a():
+    b = 0
+    def c():
+        print(b)
+        [b:=2 for _ in range(10)]
+"""
+    scope = analyze_scopes(ast.parse(code))
+    a_scope = scope.inner_scopes[0]
+    c_scope = a_scope.inner_scopes[0]
+    assert a_scope.symbols["b"] == SymbolTypeFlags.LOCAL
+    assert c_scope.symbols["b"] == SymbolTypeFlags.LOCAL
 
 
 def test_comprehension_assign_creates_new_local_symbole_in_outer_scope():

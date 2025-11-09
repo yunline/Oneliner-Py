@@ -213,6 +213,9 @@ def assign_symbol_comprehensions(
         if name in outer.symbols:
             if outer.symbols[name] == SymbolTypeFlags.REFERENCED_GLOBAL:
                 outer.symbols[name] = SymbolTypeFlags.LOCAL
+            elif outer.symbols[name] == SymbolTypeFlags.FREE:
+                outer.symbols[name] = SymbolTypeFlags.LOCAL
+                del outer.nonlocal_reference_dict[name]
         else:
             outer.symbols[name] = SymbolTypeFlags.LOCAL
         return
