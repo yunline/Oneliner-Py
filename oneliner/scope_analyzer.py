@@ -492,13 +492,16 @@ def analyze_expr(ctx: AnalysisContext, node: expr) -> None:
         else:
             # generic handler for any expr type
             for field_name in top._fields:
-                if not hasattr(top, field_name):
-                    continue
-                field = getattr(top, field_name)
-                if isinstance(field, expr):
-                    stack.append(field)
-                elif isinstance(field, list):
-                    stack.extend(reversed(field))
+                field = getattr(top, field_name, None)
+                if isinstance(field, list):
+                    for _node in reversed(field):
+                        # Inner node type might not always be expr.
+                        # However, inner node might contain expr nodes.
+                        # So let's cast them and treat them as expr.
+                        if isinstance(_node, AST):
+                            stack.append(typing.cast(expr, _node))
+                elif isinstance(field, AST):
+                    stack.append(typing.cast(expr, field))
 
 
 def analyze_scopes(root_node: Module) -> ScopeGlobal:
