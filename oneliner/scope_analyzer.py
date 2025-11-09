@@ -169,19 +169,7 @@ def assign_symbol_global(ctx: AnalysisContext, name: str, node: stmt | expr):
     ctx.symbols[name] = SymbolTypeFlags.GLOBAL
 
 
-def assign_symbol_function(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
-    if name in ctx.symbols:
-        if ctx.symbols[name] == SymbolTypeFlags.REFERENCED_GLOBAL:
-            pass
-        elif ctx.symbols[name] == SymbolTypeFlags.FREE:
-            del ctx.nonlocal_reference_dict[name]
-        else:
-            return
-
-    ctx.symbols[name] = SymbolTypeFlags.LOCAL
-
-
-def assign_symbol_class(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
+def assign_symbol_local(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols:
         if ctx.symbols[name] == SymbolTypeFlags.REFERENCED_GLOBAL:
             pass
@@ -246,14 +234,17 @@ def reference_symbol_global(ctx: AnalysisContext, name: str, node: stmt | expr) 
         ctx.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
 
 
-def reference_symbol_function(
-    ctx: AnalysisContext, name: str, node: stmt | expr
-) -> None:
+def reference_symbol_local(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols:
         return
 
     outer = ctx.outer_ctx
     while True:
+        if isinstance(outer.node, Lambda) and not isinstance(ctx.node, Lambda):
+            raise ScopeAnalysisError(  # pragma: no cover
+                f"Scope '{type(ctx.node)}' shall never be inside of a Lambda scope"
+            )
+
         if isinstance(outer.node, Module):
             ctx.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
             break
@@ -264,44 +255,18 @@ def reference_symbol_function(
 
         if isinstance(outer.node, (FunctionDef, Lambda)):
             if name in outer.symbols:
-                ctx.symbols[name] = SymbolTypeFlags.FREE
-                ctx.nonlocal_reference_dict[name] = outer
-                break
+                if not outer.symbols[name] & (
+                    SymbolTypeFlags.REFERENCED_GLOBAL | SymbolTypeFlags.FREE
+                ):
+                    ctx.symbols[name] = SymbolTypeFlags.FREE
+                    ctx.nonlocal_reference_dict[name] = outer
+                    break
             outer = outer.outer_ctx
             continue
 
         raise ScopeAnalysisError(  # pragma: no cover
             f"Invalid outer scope '{type(outer.node)}' was found "
-            f"when analyzing reference in function scope"
-        )
-
-
-def reference_symbol_class(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
-    if name in ctx.symbols:
-        return
-
-    outer = ctx.outer_ctx
-    while True:
-        if isinstance(outer.node, Module):
-            ctx.symbols[name] = SymbolTypeFlags.REFERENCED_GLOBAL
-            break
-        if isinstance(outer.node, FunctionDef):
-            if name in outer.symbols and outer.symbols[name] & (
-                SymbolTypeFlags.PARAMETER | SymbolTypeFlags.LOCAL
-            ):
-                ctx.symbols[name] = SymbolTypeFlags.FREE
-                ctx.nonlocal_reference_dict[name] = outer
-                break
-            else:
-                outer = outer.outer_ctx
-                continue
-        if isinstance(outer.node, ClassDef):
-            outer = outer.outer_ctx
-            continue
-
-        raise ScopeAnalysisError(  # pragma: no cover
-            f"Invalid outer scope '{type(outer.node)}' was found "
-            f"when analyzing reference in class scope"
+            f"when analyzing reference in local scope"
         )
 
 
@@ -325,7 +290,7 @@ def bind_global_global(ctx: AnalysisContext, name: str, node: stmt | expr) -> No
     pass
 
 
-def bind_global_block(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
+def bind_global_local(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name not in ctx.symbols:
         ctx.symbols[name] = SymbolTypeFlags.GLOBAL
         return
@@ -366,7 +331,7 @@ def bind_nonlocal_global(ctx: AnalysisContext, name: str, node: stmt | expr) -> 
     )
 
 
-def bind_nonlocal_block(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
+def bind_nonlocal_local(ctx: AnalysisContext, name: str, node: stmt | expr) -> None:
     if name in ctx.symbols:
         sym = ctx.symbols[name]
         if sym & SymbolTypeFlags.NONLOCAL_DST:
@@ -547,25 +512,25 @@ def analyze_scopes(root_node: Module) -> ScopeGlobal:
 
         elif isinstance(top_node, FunctionDef):
             top_ctx.result = ScopeFunction()
-            top_ctx._assign_symbol = assign_symbol_function
-            top_ctx._reference_symbol = reference_symbol_function
-            top_ctx._bind_global = bind_global_block
-            top_ctx._bind_nonlocal = bind_nonlocal_block
+            top_ctx._assign_symbol = assign_symbol_local
+            top_ctx._reference_symbol = reference_symbol_local
+            top_ctx._bind_global = bind_global_local
+            top_ctx._bind_nonlocal = bind_nonlocal_local
             register_function_args(top_ctx, top_node.args)
             analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, ClassDef):
             top_ctx.result = ScopeClass()
-            top_ctx._assign_symbol = assign_symbol_class
-            top_ctx._reference_symbol = reference_symbol_class
-            top_ctx._bind_global = bind_global_block
-            top_ctx._bind_nonlocal = bind_nonlocal_block
+            top_ctx._assign_symbol = assign_symbol_local
+            top_ctx._reference_symbol = reference_symbol_local
+            top_ctx._bind_global = bind_global_local
+            top_ctx._bind_nonlocal = bind_nonlocal_local
             analyze_block(top_ctx, top_node)
 
         elif isinstance(top_node, Lambda):
             top_ctx.result = ScopeLambda()
-            top_ctx._assign_symbol = assign_symbol_function
-            top_ctx._reference_symbol = reference_symbol_function
+            top_ctx._assign_symbol = assign_symbol_local
+            top_ctx._reference_symbol = reference_symbol_local
             register_function_args(top_ctx, top_node.args)
             analyze_expr(top_ctx, top_node.body)
 
