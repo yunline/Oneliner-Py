@@ -132,12 +132,13 @@ def get_ast_node_location_info(node: stmt | expr):
 
 
 def register_function_args(ctx: AnalysisContext, args: arguments):
+    _flag = SymbolTypeFlags.PARAMETER | SymbolTypeFlags.LOCAL
     for arg in itertools.chain(args.posonlyargs, args.args, args.kwonlyargs):
-        ctx.symbols[arg.arg] = SymbolTypeFlags.PARAMETER
+        ctx.symbols[arg.arg] = _flag
     if args.vararg is not None:
-        ctx.symbols[args.vararg.arg] = SymbolTypeFlags.PARAMETER
+        ctx.symbols[args.vararg.arg] = _flag
     if args.kwarg is not None:
-        ctx.symbols[args.kwarg.arg] = SymbolTypeFlags.PARAMETER
+        ctx.symbols[args.kwarg.arg] = _flag
 
 
 def assign_symbol_global(ctx: AnalysisContext, name: str, node: stmt | expr):
